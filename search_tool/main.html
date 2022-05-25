@@ -1,0 +1,1801 @@
+<!DOCTYPE html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body id="body" onload="startup()" onunload="cleanup()">
+<script type="text/javascript" src="words.js"></script>
+<script type="text/javascript" src="reference.js"></script>
+<script type="text/javascript">
+
+var results;
+var first=true;
+var min=0;
+var page;
+var pps=100;
+var max=99;
+var batch=1;
+var maxp=Math.floor(1000/pps);
+var renderCheckboxes=true;
+var more=false;
+var invert=false;
+var datasets;
+//var settings={"history_size":100,"results_page":100,"lemma":1,"hide_columns":["heading2"],"colls":[],"lang":"fi","lemmas":[]};
+var settings={};
+var hist;
+var save_hist=false;
+var glob_colls=1;
+var baseURL="cgi-bin/";
+var pairs;
+
+function callURL(who,what)
+{
+  var xmlhttp=new XMLHttpRequest();
+  var result="";
+  xmlhttp.onreadystatechange=function()
+  {
+    if (xmlhttp.readyState==XMLHttpRequest.DONE)
+    {
+      if (xmlhttp.status==200)
+        result=xmlhttp.responseText;
+      else
+        result="error"; //other error value?
+    }
+  };
+  xmlhttp.open("GET",baseURL+who+"?reqs="+encodeURIComponent(what),false);
+  xmlhttp.send("{}");
+  return result;
+}
+
+function getHistory(fetch)
+{
+  if (fetch)
+  {
+    var dump=callURL("history.py",JSON.stringify({"name":"123"}));
+    hist=JSON.parse(dump);
+  }
+  var out=hist.slice(0,settings["history_size"]);
+  var h=document.getElementById("history");
+  while (h.firstChild)
+    h.removeChild(h.firstChild);
+  var optn=document.createElement("option");
+  optn.innerHTML=langs_misc[settings["lang"]]["misc.1"];
+  optn.value="0";
+  h.appendChild(optn);
+  var dts;
+  for (var i=0; i<out.length; i++)
+  {
+    dts=[];
+    optn=document.createElement("option");
+    for (key in out[i])
+    {
+      if (key.indexOf("dataset")>-1)
+      {
+        dts.push(out[i][key]);
+        continue;
+      }
+      if ((key=="time") || (key=="agent"))
+        continue;
+      dump=key+":"+out[i][key]+" ";
+      optn.value+=dump.slice(0,-1)+"~";
+      if (out[i][key]==="")
+        continue;
+      dump=dump.replace(/:none/,":any");
+      dump=dump.replace(/radius:/,"context:");
+      dump=dump.replace(/dataset[0-9]/,"dataset");
+      optn.innerHTML+=dump;
+    }
+    optn.innerHTML="datasets:"+dts.join(",")+" "+optn.innerHTML;    
+    optn.innerHTML=(out.length-i)+") "+optn.innerHTML;
+    optn.value="datasets:"+dts.join(",")+"~"+optn.value;
+    optn.value=optn.value.slice(0,-1);
+    h.appendChild(optn);
+    h.onchange=loadQuery;
+  }
+}
+
+function setColls(name,op)
+{
+  var d;
+  if (op=="add")
+  {
+    d=document.getElementById("ddatasets");
+    d.appendChild(document.createElement("br"));
+    var elem=document.createElement("input");
+    elem.type="checkbox";
+    elem.name="dataset";
+    elem.id="dataset"+(glob_colls+1);
+    elem.value=name;
+    elem.onchange=toggle;
+    d.appendChild(elem);
+    elem=document.createElement("label");
+    elem.setAttribute("for","dataset"+(glob_colls+1));
+    elem.innerText=langs_misc[settings["lang"]]["misc.2"]+" ("+name+")";
+    d.appendChild(elem);
+    elem=document.createElement("input");
+    elem.type="button";
+    elem.id="delete_"+name;
+    elem.value=langs_misc[settings["lang"]]["misc.3"];
+    elem.onclick=function()  
+    {
+      setColls(name,"remove");
+      console.log(callURL("colls.py",JSON.stringify({"delete":true,"name":name})));
+      glob_colls--;
+    };
+    d.appendChild(elem);
+    d=document.getElementById("partial_dataset"+glob_colls);
+    elem=document.createElement("div");
+    elem.id="partial_dataset"+(glob_colls+1);
+    d.parentNode.insertBefore(elem,d.nextSibling);
+    return;
+  }
+  if (op=="remove")
+  {
+    d=document.getElementById("delete_"+name);
+    var s="";
+    var t="";
+    do
+    { //label before delete button, then checkbox, then br
+      s=d.previousSibling.tagName.toLowerCase();
+      if (d.previousSibling.type=="checkbox")
+        t=d.previousSibling.id;
+      d.parentNode.removeChild(d.previousSibling);
+    }
+    while (s!="br");
+    d.parentNode.removeChild(d); //delete button itself
+    d=document.getElementById("partial_"+t);
+    d.parentNode.removeChild(d);
+    var index=settings["colls"].indexOf(name);
+    if (index>-1)
+      settings["colls"].splice(index,1);
+    save_hist=true;
+  }
+}
+
+function getSettings()
+{
+  var dump=callURL("settings.py",JSON.stringify({"name":"123"}));
+  var def_settings={"hide_columns":[],"history_size":100,"lemma":1,"lemmas":"","results_page":100,"colls":[],"lang":"fi"};
+  settings=def_settings;
+  if (dump!="error")
+    settings=JSON.parse(dump);
+  for (var key in def_settings) //for incomplete settings files
+    if (!(key in settings))
+    {
+      settings[key]=def_settings[key];
+      save_hist=true;
+    }
+  for (var key in settings)
+    if (settings[key]==="")
+      settings[key]=[];
+  pps=settings["results_page"];
+  maxp=Math.floor(1000/pps);
+  var optn=document.createElement("option");
+  optn.innerHTML=langs_misc[settings["lang"]]["misc.4"];
+  optn.value="0";
+  var f=document.getElementById("favourites");
+  f.appendChild(optn);
+  if (!("lemmas" in settings))
+    settings["lemmas"]=[];
+  for (var i=0; i<settings["lemmas"].length; i++)
+  {
+    optn=document.createElement("option");
+    optn.innerHTML=settings["lemmas"][i];
+    optn.value=optn.innerHTML;
+    optn.title=langs_misc[settings["lang"]]["misc.5"];
+    optn.oncontextmenu=removeLemma;
+    f.appendChild(optn);
+  }
+  f.onchange=loadLemma;
+  for (var i=0; i<settings["colls"].length; i++)
+  {
+    setColls(settings["colls"][i],"add");
+    glob_colls++;
+  }
+}
+
+function showSettings()
+{
+  var src=document.getElementById("settings").contentWindow.document;
+  var i;
+  for (i=0; i<src.getElementById("history_size").options.length; i++)
+    if (src.getElementById("history_size").options[i].value==settings["history_size"]+"")
+    {
+      src.getElementById("history_size").selectedIndex=i;
+      break;
+    }
+  for (i=0; i<src.getElementById("lang").options.length; i++)
+    if (src.getElementById("lang").options[i].value==settings["lang"])
+    {
+      src.getElementById("lang").selectedIndex=i;
+      break;
+    }
+  src.querySelectorAll("input[name='lemma']")[settings["lemma"]].checked=true;
+  var boxes=src.querySelectorAll("input[type='checkbox']");
+  for (i=0; i<boxes.length; i++)
+    if (settings["hide_columns"].indexOf(boxes[i].value)>=0)
+      boxes[i].checked=false;
+  document.getElementById("settings").style.display="";
+}
+
+function hideSettings()
+{
+  var news={};
+  var src=document.getElementById("settings").contentWindow.document;
+  news["history_size"]=parseInt(src.getElementById("history_size").options[src.getElementById("history_size").selectedIndex].value,10);
+  news["lemma"]=parseInt(src.querySelector('input[name="lemma"]:checked').value-1,10);
+  news["results_page"]=parseInt(src.getElementById("pps").options[src.getElementById("pps").selectedIndex].value,10);
+  news["hide_columns"]=[];
+  news["lemmas"]=settings["lemmas"];
+  news["lang"]=src.getElementById("lang").options[src.getElementById("lang").selectedIndex].value;
+  news["colls"]=settings["colls"].slice(0);
+  var boxes=src.querySelectorAll("input[type='checkbox']");
+  for (var i=0; i<boxes.length; i++)
+    if (!boxes[i].checked)
+      news["hide_columns"].push(boxes[i].value);
+  document.getElementById("settings").style.display="none";
+  for (var key in news)
+    if (news[key]!=settings[key])
+    {
+      if ((key=="hide_columns") && (news[key].length==settings[key].length))
+      {
+        var eq=true;
+        for (var j=0; j<news[key].length; j++)
+          if (news[key][j]!=settings[key][j])
+          {
+            eq=false;
+            break;
+          }
+        if (eq)
+          continue;
+      }
+      if (settings["history_size"]!=news["history_size"])
+      {
+        settings["history_size"]=news["history_size"];
+        getHistory(false);
+      }
+      if (settings["lang"]!=news["lang"])
+      {
+        settings["lang"]=news["lang"];
+        setLang();
+      }
+      pps=news["results_page"];
+      maxp=Math.floor(1000/pps);
+      settings=news;
+      save_hist=true;
+      break;
+    }
+}
+
+function showStatistics()
+{
+  var src=document.getElementById("stats").contentWindow.document;
+  var divs=src.getElementsByTagName("div");
+  for (var i=0; i<divs.length-1; i++)
+    while(divs[i].firstChild)
+      divs[i].removeChild(divs[i].firstChild);
+  document.getElementById("stats").contentWindow.draw();
+  document.getElementById("stats").style.display="";
+}
+
+function setLang()
+{
+  var lg=langs[settings["lang"]];
+  for (var i=0; i<lg.length; i++)
+  {
+    var s=lg[i]["id"];
+    if (s.substring(0,4)=="misc")
+      continue;
+    var target=document;
+    if (s.indexOf(".")>=0)
+    {
+      switch (s.substring(0,s.indexOf(".")))
+      {
+        case "iframe":
+          target=document.getElementById("settings").contentWindow.document;
+          break;
+        case "iframe2":
+          target=document.getElementById("stats").contentWindow.document;
+          break;
+        case "iframe3":
+          target=document.getElementById("csv").contentWindow.document;
+      }
+      s=s.substring(s.indexOf(".")+1);
+    }
+    var opt;
+    if (s.indexOf("::")>=0)
+    {
+      opt=s.substring(s.indexOf("::")+2);
+      s=s.substring(0,s.indexOf("::"));
+    }
+    if (lg[i]["type"]=="input")
+      target.getElementById(s).value=lg[i]["text"];
+    if (lg[i]["type"]=="label")
+      target.getElementById(s).labels[0].innerHTML=lg[i]["text"];
+    if (lg[i]["type"]=="element")
+      target.getElementById(s).innerHTML=lg[i]["text"];
+    if (lg[i]["type"]=="option")
+    {
+      var j;
+      var opts=target.getElementById(s).options;
+      for (j=0; j<opts.length; j++)
+        if (opts[j].value==opt)
+        {
+          opts[j].text=lg[i]["text"];
+          break;
+        }
+    }
+  }
+}
+
+//colnames & hnames
+//pagenum does not update when language changes
+//favourite tooltip does not update when language changes
+
+function toggle()
+{
+  var len=document.getElementsByName("dataset").length;
+  for (var i=0; i<len; i++)
+    document.getElementById("partial_dataset"+(i+1)).style.display=
+     document.getElementById("dataset"+(i+1)).checked? "" : "none";
+}
+
+function startup()
+{
+  document.getElementById("settings").style.display="none";
+  document.getElementById("stats").style.display="none";
+  document.getElementById("tooltip").style.display="none";
+  document.getElementById("csv").style.display="none";
+  getSettings();
+  setLang();
+  toggle();
+  getHistory(true);
+  pairs=Array(words_freq.length);
+  var i=0;
+  for (var k in words_freq)
+    pairs[i++]=[k,words_freq[k]];
+  pairs=pairs.sort(function(a,b)
+    {return b[1]-a[1];})
+  var left=Array(pairs.length), right=Array(pairs.length);
+  for (i=0; i<pairs.length; i++)
+  {
+    left[i]=pairs[i][0];
+    right[i]=pairs[i][1];
+  }
+  pairs=[left.slice(0),right.slice(0)];
+}
+
+function cleanup()
+{
+  if (!save_hist)
+    return;
+  settings["save"]=true;
+  var dump=callURL("settings.py",JSON.stringify(settings));
+  delete settings["save"];
+}
+
+function loadQuery()
+{
+  var v=document.getElementById("history").value;
+  if (v.indexOf("~")==-1)
+    return;
+  v=v.split("~");
+  var s,i;
+  for (i=0; i<v.length; i++)
+  {
+    s=v[i].split(":");
+    if (s[0]=="datasets")
+    {
+      var ckbxs=s[1].split(",");
+      for (var j=1; j<glob_colls+1; j++)
+        document.getElementById("dataset"+j).checked=false;
+      for (var j=0; j<ckbxs.length; j++)
+        switch(ckbxs[j])
+        {
+          case "minute":
+            document.getElementById("dataset1").checked=true;
+            break;
+          default:
+            for (var k=2; k<12; k++)
+            {
+              var elem=document.getElementById("dataset"+k);
+              if (!elem)
+                break;
+              if (elem.value==ckbxs[j])
+              {
+                elem.checked=true;
+                break;
+              }
+            }
+        }
+      toggle();
+    }
+    else
+      if (document.getElementById(s[0]))
+        document.getElementById(s[0]).value=s[1];
+  }
+}
+
+function loadLemma()
+{
+  var v=document.getElementById("favourites").value;
+  if (v.indexOf(langs_misc[settings["lang"]]["misc.4"])==-1)
+    document.getElementById("lemma").value=v;
+}
+
+function addLemma()
+{
+  var o=document.createElement('option');
+  o.value=document.getElementById("lemma").value.replace(/,/g,"");
+  o.innerHTML=o.value;
+  document.getElementById("favourites").appendChild(o);
+  settings["lemmas"].push(o.value);
+  save_hist=true;
+}
+
+//In Chrome, this only fires when right-clicking the selected option itself,
+//not when right-clicking a different option in the dropdown list
+function removeLemma()
+{
+  var f=document.getElementById("favourites");
+  var i=f.selectedIndex;
+  if (i>0)
+  {
+    settings["lemmas"].splice(i-1,1);
+    f.remove(i);
+    save_hist=true;
+  }
+}
+
+function showWords()
+{
+  var el=document.getElementById("lemma");
+  spaces=[-1];
+  var i;
+  for (i=0; i<el.value.length; i++)
+    if (el.value[i]==" ")
+      spaces.push(i);
+  spaces.push(el.value.length);
+  for (i=0; i<spaces.length-1; i++)
+    if (el.selectionStart>spaces[i] && el.selectionStart<=spaces[i+1])
+      break;
+  var str;
+  if (i==0)
+    str=el.value.slice(0,spaces[1]);
+  else
+    str=el.value.slice(spaces[i]+1,spaces[i+1]);
+  if (str=="")
+    return;
+  str=str.replace(/['"]/g,"");
+  if (str[str.length-1]=="!")
+    return;
+  if (str[0]!="^" && settings["lemma"]%2==1)
+    str="^"+str;
+  if (str[str.length-1]!="$" && settings["lemma"]>1)
+    str+="$";
+  results=[];
+  var l=pairs[0].length;
+  var valid=true;
+  try
+  {
+    new RegExp(str);
+  }
+  catch(e)
+  {
+    valid=false;
+  }
+  if (!valid)
+    results.push("---");
+  else
+    for (i=0; i<l; i++)
+      if (pairs[0][i].search(str)>=0)
+      {
+        results.push(pairs[0][i]+": "+pairs[1][i]);
+        if (results.length>35)
+          break;
+      }
+  if (results.length==0)
+    return;
+  el=document.getElementById("tooltip_words");
+  var cnt=0,j=0;
+  for (i=0; i<el.rows.length; i++)
+  {
+    var row=el.rows[i];
+    for (j=0; j<row.cells.length; j++)
+      if (cnt<results.length)
+        row.cells[j].innerHTML=results[cnt++];
+      else
+        row.cells[j].innerHTML="";
+  }
+  document.getElementById("tooltip").style.display="";
+}
+
+function clean(start,end)
+{
+  var l=results.length;
+  if (end>=l)
+    end=l-1;
+  var i,j;
+  for (i=start; i<=end; i++)
+  {
+    for (j=0; j<results[i]["words"].length; j++)
+    {
+      var s="";
+      if (results[i]["words"][j]["feat"]!={})
+        for (var prop in results[i]["words"][j]["feat"])
+          s+=prop+"="+results[i]["words"][j]["feat"][prop]+" ";
+//or +"\xa0" to prevent line wrapping - table becomes shorter, but wider
+      results[i]["words"][j]["feat"]=s;
+    }
+    var ds="";
+    for (j=0; j<datasets.length; j++)
+      if ((i>=datasets[j]["min"]) && (i<=datasets[j]["max"]))
+        ds=datasets[j]["name"].split("_")[0];
+    if ("endsentence" in results[i])
+    {
+      results[i]["l"]=0;
+      results[i]["r"]=results[i]["endsentence"]-results[i]["sentence"];
+      results[i]["sentence"]+="-"+results[i]["endsentence"];
+    }
+    else
+    {
+      results[i]["r"]=document.getElementById("radius").value; //if no one changes it by that point
+      results[i]["l"]=results[i]["r"];
+    }
+    if (ds=="minute")
+    {
+      if ("kieli" in results[i]["metadata"])
+        results[i]["language"]=results[i]["metadata"]["kieli"];
+      else
+        results[i]["language"]="-";
+      results[i]["date"]=new Date(results[i]["metadata"]["date"]["$date"]).toLocaleDateString("fi-FI",{day:"numeric",month:"numeric",year:"numeric"}).replace(/\//g,"."); //also weekday:"short" if needed
+      results[i]["paragraph"]=results[i]["metadata"]["paragraph"];
+      //if ("ityyppi" in results[i]["metadata"])
+      //  results[i]["event"]=results[i]["metadata"]["ityyppi"];
+      //else
+      //  results[i]["event"]="-";
+      if ("asia" in results[i]["metadata"])
+      {
+        results[i]["agenda"]=results[i]["metadata"]["asia"];
+        if ("sasia" in results[i]["metadata"])
+          results[i]["agenda"]+=" ("+results[i]["metadata"]["sasia"]+")";
+      }
+      else
+        results[i]["agenda"]="-";
+      if ("tyyppi" in results[i]["metadata"])
+        results[i]["type"]=results[i]["metadata"]["tyyppi"];
+      else
+        results[i]["type"]="-";
+      var n=results[i]["metadata"]["inro"].toString();
+      var y=results[i]["metadata"]["tunniste"].toString();
+      results[i]["vp"]=y;
+      results[i]["source"]="https://www.eduskunta.fi/FI/vaski/Poytakirja/Documents/PTK_"+n+"+"+y+".pdf";
+      var pagenum=-1;
+      if ("page" in results[i]["metadata"])
+        results[i]["page"]=pagenum=results[i]["metadata"]["page"];
+      else
+      {
+        results[i]["page"]="-";
+        if (n.length==1)
+          n="00"+n;
+        if (n.length==2)
+          n="0"+n;
+        if (y+"ptk"+n in minutes)
+        {
+          pagenum=minutes[y+"ptk"+n];
+          if (typeof results[i]["sentence"]=="string")
+            pagenum=Math.round(pagenum*parseInt(results[i]["sentence"].split("-")[0],10)/results[i]["maxorder"]);
+          else
+            pagenum=Math.round(pagenum*results[i]["sentence"]/results[i]["maxorder"]);
+          if (pagenum==0)
+            pagenum=1;
+        }
+      }
+      if (pagenum>=1)
+        results[i]["source"]+="#page="+pagenum;
+      results[i]["session"]=results[i]["metadata"]["inro"];
+      if ("snoviite" in results[i]["metadata"])
+      {
+        if (typeof results[i]["metadata"]["snoviite"]=="string")
+          results[i]["item"]=results[i]["metadata"]["snoviite"].replace("Kohta","").replace("kohta","");
+        else
+          results[i]["item"]=results[i]["metadata"]["snoviite"];
+      }
+      else
+      {
+        if (("ptkviite" in results[i]["metadata"]) && (typeof results[i]["metadata"]["ptkviite"]=="string") && (results[i]["metadata"]["ptkviite"].indexOf("/")>=0))
+          results[i]["item"]=results[i]["metadata"]["ptkviite"].split("/")[1];
+        else
+          results[i]["item"]="-";  
+      }
+      if ("ptkviite" in results[i]["metadata"])
+        results[i]["ptkviite"]=results[i]["metadata"]["ptkviite"];
+      else
+        results[i]["ptkviite"]="-";
+      results[i]["sentence"]=results[i]["sentence"]+"/"+results[i]["maxorder"];
+      if ("gov" in results[i]["metadata"] && results[i]["metadata"]["gov"]!=="")
+        results[i]["oppos"]=!(results[i]["metadata"]["gov"]);
+      else
+        results[i]["oppos"]="-";
+      if ("asema" in results[i]["metadata"])
+      {
+        results[i]["status"]=results[i]["metadata"]["asema"];
+        if ("etunimi" in results[i]["metadata"])
+          results[i]["name"]=results[i]["metadata"]["etunimi"];
+        results[i]["surname"]=results[i]["metadata"]["sukunimi"];
+        if ("pnro" in results[i]["metadata"])
+          results[i]["p_num"]=results[i]["metadata"]["pnro"];
+        else
+          results[i]["p_num"]="-";
+        if ("numero" in results[i]["metadata"])
+          results[i]["sp_num"]=results[i]["metadata"]["numero"];
+        else
+          results[i]["sp_num"]="-";
+        if ("ekryhma" in results[i]["metadata"])
+          results[i]["party"]=results[i]["metadata"]["ekryhma"];
+        else
+          results[i]["party"]="-";
+      }
+      else
+      {
+        results[i]["status"]="-";
+        results[i]["name"]="-";
+        results[i]["surname"]="-";
+        results[i]["p_num"]="-";
+        results[i]["sp_num"]="-";
+        results[i]["party"]="-";
+      }
+    }
+    delete results[i]["metadata"];
+  }
+}
+
+function renderPage()
+{
+  if (page<1)
+  {
+    page=1;
+    return;
+  }
+  var maxpage=max%pps===0? Math.floor(max/pps): Math.floor(max/pps+1);
+  if (page>maxpage && more==false)
+  {
+    page=maxpage;
+    if (max>0)
+      return;
+  }
+  var newbatch=Math.floor((page-1)/maxp)+1;
+  var i=0;
+  if (newbatch>batch)
+  {
+    var query="";
+    var ob={"batch":newbatch,"radius":parseInt(document.getElementById("radius").value,10)};
+    console.log(JSON.stringify(ob));
+    jdata=callURL("main.py",JSON.stringify(ob));
+    if (jdata.indexOf("\"count\":-1")>-1)
+    {
+      page--;
+      return;
+    }
+    var offset=batch*1000;
+    batch=newbatch;
+    console.log(jdata.substr(0,10000));
+    var results2=JSON.parse(jdata);
+    if (results2["count"]<-1)
+    {
+      max=-results2["count"];
+      more=true;
+    }
+    else
+    {
+      max=results2["count"];
+      more=false;
+    }
+    //console.log(results["times"]);
+    var last_ind=0;
+    for (i=0; i<datasets.length; i++)
+      if (datasets[i]["max"]==offset-1)
+      {
+        last_ind=i;
+        break;
+      }
+    for (i=0; i<results2["datasets"].length; i++)
+      if (results2["datasets"][i]["name"]==datasets[last_ind]["name"])
+        datasets[last_ind]["max"]=offset+results2["datasets"][i]["max"];
+      else
+      {
+        results2["datasets"][i]["min"]+=offset;
+        results2["datasets"][i]["max"]+=offset;
+        datasets.push(results2["datasets"][i]);
+      }
+    console.log(datasets);
+    results=results.concat(results2["data"]);
+    clean(offset,results.length-1);
+  }
+  var pl=more?"+":"";
+  maxpage=max%pps===0? Math.floor(max/pps): Math.floor(max/pps+1);
+  if ("textContent" in document.body)
+    document.getElementById("pagenum").textContent=langs_misc[settings["lang"]]["misc.6a"]+" "+page+"/"+maxpage+" ("+max+pl+" "+langs_misc[settings["lang"]]["misc.6b"]+")";
+  else
+    document.getElementById("pagenum").innerHTML=langs_misc[settings["lang"]]["misc.6a"]+" "+page+"/"+maxpage+" ("+max+pl+" "+langs_misc[settings["lang"]]["misc.6b"]+")";
+  var tables=document.getElementsByTagName('table');
+  i=0;
+  while (tables.length>i)
+    if (tables[i].id=="tooltip_words")
+      i++;
+    else
+      tables[i].parentNode.removeChild(tables[i]);
+  tables=document.getElementsByTagName("br");
+  for (i=0; i<tables.length; i++)
+    if (tables[i].parentNode.nodeName.toLowerCase()=="body")
+    {
+      tables[i].parentNode.removeChild(tables[i]);
+      i--;
+    }
+  if (max==0)
+    return;
+  var idx=-1;
+  var tempidx=0;
+  var checkboxnames=[];
+  for (var d=0; d<datasets.length; d++)
+  {
+    var minslice=(page-1)*pps;
+    var maxslice=minslice+pps-1;
+    if ( ((datasets[d]["min"]<minslice) && (datasets[d]["max"]<minslice)) || ((datasets[d]["min"]>maxslice) && (datasets[d]["max"]>maxslice)))
+      continue;
+    if ((datasets[d]["min"]>minslice) && (datasets[d]["min"]<=maxslice))
+      minslice=datasets[d]["min"];
+    if ((datasets[d]["max"]>=minslice) && (datasets[d]["max"]<maxslice))
+      maxslice=datasets[d]["max"];
+    temp=results.slice(minslice,maxslice+1);
+    var colnames=[];
+    var hnames=[];
+    var tname="";
+    switch(datasets[d]["name"].split("_")[0])
+    {
+      case "minute":
+        colnames=["sentence","text","words","name","surname","status","party","oppos","sp_num","p_num","session","ptkviite","item","agenda","date","language","paragraph","type","vp","page","source"];
+        hnames=["virke","teksti","sanat","etunimi","sukunimi","asema","puolue","oppositio","sp_num","p_num","istunto","ptkviite","asia_nro","aihe","pvm","kieli","kappale","tyyppi","vp","sivu","lähde"];
+        tname="Pöytäkirjat";
+        break;
+    }
+    if (datasets[d]["name"].indexOf("_")>=0)
+      tname+=" ("+datasets[d]["name"].split("_")[1]+")";
+    for (var n=0; n<colnames.length; n++)
+      if (checkboxnames.indexOf(hnames[n])==-1)
+        checkboxnames.push(hnames[n]);
+    document.getElementById("body").appendChild(document.createElement("br"));
+    tableCreate(colnames,hnames,tname,temp,document.getElementById("body"));
+    tempidx++;
+  }
+  var holder=document.getElementById("second");
+  var tempstates={};
+  var tempboxes=holder.childNodes;
+  for (var j=0; j<tempboxes.length; j++)
+    if ((tempboxes[j].nodeType==Node.ELEMENT_NODE) && (tempboxes[j].tagName.toLowerCase()=="input"))
+      if (tempboxes[j].labels)
+        tempstates[tempboxes[j].labels[0].innerText]=tempboxes[j].checked; //for Chrome
+      else
+        tempstates[tempboxes[j].nextElementSibling.textContent]=tempboxes[j].checked;
+  while (holder.firstChild)
+    holder.removeChild(holder.firstChild);
+  holder.appendChild(document.createTextNode(langs_misc[settings["lang"]]["misc.7"]));
+  holder.appendChild(document.createElement("br"));
+  for (var j=0; j<checkboxnames.length; j++)
+  {
+    var checkbox=document.createElement('input');
+    checkbox.type="checkbox";
+    checkbox.id="check_"+j;
+    if (checkboxnames[j] in tempstates)
+      checkbox.checked=tempstates[checkboxnames[j]];
+    else
+      checkbox.checked=true;
+    if ((first) && (settings["hide_columns"].indexOf(checkboxnames[j])>=0))
+      checkbox.checked=false;
+    checkbox.onchange=listener;
+    var label=document.createElement('label');
+    label.htmlFor=checkbox.id;
+    label.appendChild(document.createTextNode(checkboxnames[j]));
+    holder.appendChild(checkbox);
+    holder.appendChild(label);
+    holder.appendChild(document.createElement("br"));
+  }
+  first=false;
+  //document.getElementsByTagName("table")[0].className="top";
+  //document.getElementsByTagName("table")[0].id="top";
+  //Get the second td of every table row, which always contains the sentence text,
+  //and replace the pipe characters in it with <b> tags 
+  var elems=document.querySelectorAll('table > tbody > tr > td:nth-child(3)');
+  for (var i=0; i<elems.length; i++)
+    elems[i].innerHTML=elems[i].innerHTML.replace(/\|(.*?)\|/g,"<b>$1</b>");
+  var boxes=document.getElementById("second").getElementsByTagName("input");
+  //Send a change event to all column checkboxes, so that the right columns would become hidden
+  for (var i=0; i<boxes.length; i++)
+    if (!boxes[i].checked)
+      if (typeof(Event)==="function")
+        boxes[i].dispatchEvent(new Event("change"));
+      else
+      {
+        var event=document.createEvent("Event");
+        event.initEvent("change",true,true);
+        boxes[i].dispatchEvent(event);
+      }
+}
+
+var listener=function(e) 
+{
+  var col=-1;
+  var row=0;
+  var rl;
+  var tables=document.querySelectorAll("table.top");
+  var found;
+  var i=0,j=0;
+  var target;
+  if (e.target.labels)
+    target=e.target.labels[0].innerText;
+  else
+    target=e.target.nextElementSibling.textContent;
+  var result=e.target.checked?"":"none";
+  for (i=0; i<tables.length; i++)
+  {
+    var rows=tables[i].rows;
+    found=false;
+    for (j=0; j<rows[0].cells.length; j++)
+      if (rows[0].cells[j].innerText==target)
+      {
+        col=j;
+        found=true;
+        break;
+      }
+    if (!found)
+      continue;
+    rl=rows.length;
+    for (row=0; row<rl; row++)
+      rows[row].cells[col].style.display=result;
+  }
+/*Alternatively (not fully supported):
+    var cols=tables[i].getElementsByTagName("col");
+    for (j=0; j<cols.length; j++)
+      if (cols[j].id=="col_"+target)
+      {
+        cols[i].style.display=e.target.checked?"":"collapse";
+        break;
+      }
+*/
+};
+
+function reverseRegex(s)
+{ // ^ab[1-3]+?c(123|456|789)?d[2-5]{1,3}ef$ -> ^fe[2-5]{1,3}d(987|654|321)?c[1-3]+?ba$
+  var tokens=[];
+  var i,m_idx;
+  var end=false;
+  if (s[0]=="^")
+  {
+    tokens.push("$");
+    s=s.substring(1);
+  }
+  if (s[s.length-1]=="$")
+  {
+    end=true;
+    s=s.substring(0,s.length-1);
+  }
+  for (i=0; i<s.length; i++)
+  {
+    if (s[i]=="\\")
+    {
+      if (s[i+1]=="x")
+      {
+        tokens.push(s.substring(i,i+4));
+        console.log(s.substring(i,i+4));
+        i+=3;
+      }
+      else
+        if (s[i+1]=="u")
+        {
+          tokens.push(s.substring(i,i+6));
+          i+=5;
+        }
+        else
+        {
+          tokens.push(s[i]+s[i+1]);
+          i++;
+        }
+      continue;
+    }
+    if (s[i]=="{")
+    {
+      m_idx=s.substring(i).indexOf("}");
+      tokens[tokens.length-1]+=s.substring(i,i+m_idx+1);
+      i+=m_idx;
+      continue;
+    }
+    if (s[i]=="[")
+    {
+      m_idx=s.substring(i).indexOf("]");
+      tokens.push(s.substring(i,i+m_idx+1));
+      i+=m_idx;
+      continue;
+    }
+    if (s[i]=="(")
+    {
+      m_idx=s.substring(i).indexOf(")");
+      tokens.push("("+reverse_regex(s.substring(i+1,i+m_idx))+")");
+      i+=m_idx;
+      continue;
+    }
+    if ((s[i]=="?") || (s[i]=="*") || (s[i]=="+"))
+    {
+      tokens[tokens.length-1]+=s[i];
+      continue;
+    }
+    tokens.push(s[i]);
+  }
+  if (end)
+    tokens.push("^");
+  return tokens.reverse().join("");
+}  
+
+function parseLemma(word,mode,reverse)
+{
+/*
+The currently used form (mode="document") stores the features in a subdocument,
+e.g. {"Case":"Nom","Number":"Sing"}.
+Queries matching this form will appear as
+{"words":{"$all":[{"$elemMatch":{"lemma":"^osata","cpos":"VERB","feat.Tense":{"$in":["Pres","Past"]},"feat.Person":"1"}},{"$elemMatch":{"lemma":"^paine","cpos":"NOUN","feat.Number":"Sing","feat.Case":{"$in":["Nom","Par"]}}}]}}
+*/
+  var negate=false;
+  if (mode=="document")
+  {
+    var out={"$elemMatch":{}};
+    var props=word.split("|");
+    if ((props[0]!="") && (props[0]!="*"))
+    {
+      if (props[0][0]=="!")
+      {
+        negate=true;
+        props[0]=props[0].slice(1);
+      }
+      if (props[0][props[0].length-1]=="!")
+        out["$elemMatch"]["form"]=props[0].slice(0,-1);
+      else
+      {
+        if ((props[0][0]!="^") && (settings["lemma"]%2==1))
+          props[0]="^"+props[0];
+        if ((props[0][props[0].length-1]!="$") && (settings["lemma"]>1))
+          props[0]+="$";
+        if ((props[0]!="") && (props[0]!="*"))
+          if (reverse)
+            out["$elemMatch"]["rlemma"]=reverseRegex(props[0]);
+          else
+            out["$elemMatch"]["lemma"]=props[0];
+      }
+    }
+    if (props.length>1)
+      out["$elemMatch"]["cpos"]=props[1].substring(props[1].indexOf("=")+1).toUpperCase();
+    if (props.length>2)
+    {
+      for (var k=2; k<props.length; k++)
+      {
+        var cond=props[k].split("=");
+        if (cond[1].indexOf(",")>=0)
+        {
+          var terms=cond[1].split(",");
+          if (cond[0][0]!=cond[0][0].toLowerCase())
+            out["$elemMatch"]["feat."+cond[0]]={"$in":[]};
+          else
+            out["$elemMatch"][cond[0]]={"$in":[]};
+          for (var i=0; i<terms.length; i++)
+            if (cond[0][0]!=cond[0][0].toLowerCase())
+              out["$elemMatch"]["feat."+cond[0]]["$in"].push(terms[i]);
+            else
+              if ((cond[0]=="id") || (cond[0]=="head"))
+                out["$elemMatch"][cond[0]]["$in"].push(parseInt(terms[i],10));
+              else
+                out["$elemMatch"][cond[0]]["$in"].push(terms[i]);
+        }
+        else
+          if (cond[0][0]!=cond[0][0].toLowerCase())
+            out["$elemMatch"]["feat."+cond[0]]=cond[1];
+          else
+            if ((cond[0]=="id") || (cond[0]=="head"))
+              out["$elemMatch"][cond[0]]=parseInt(cond[1],10);
+            else
+              out["$elemMatch"][cond[0]]=cond[1];
+      }
+    }
+  }
+  if (negate)
+  {
+    invert=true;
+    return {"$not":out};
+  }
+  return out;
+}
+
+function processForm(getStats)
+{
+  var query={};
+  var i,j;
+  var number=0;
+  query["save"]=true;
+  var elems=document.getElementById("form").getElementsByTagName("*");
+  for (i=0; i<elems.length; i++)
+//Only input elements inside the form have IDs, and only the visible ones are of interest
+//(that is, not the ones placed inside hidden divs nor the divs themselves)
+    if ((elems[i].parentNode.style.display!="none") && (elems[i].id) && (elems[i].type!="button"))//(elems[i].id!="sall") && (elems[i].id!="dsall"))
+    {
+      if (((elems[i].type=="checkbox") && (!elems[i].checked)) || (elems[i].tagName=="DIV"))
+        continue;
+      query[elems[i].id]=elems[i].value;
+      if (((elems[i].id=="window") || (elems[i].id=="range")) && elems[i].value=="") //other missing values?
+        elems[i].value="0";
+    }
+  console.log(JSON.stringify(query));
+  jdata=callURL("history.py",JSON.stringify(query));
+  query={};
+  console.log(jdata);
+  number=JSON.parse(jdata)["number"];
+  query={"dataset":{}};
+  var options=0;
+  if (document.getElementById("dataset1").checked)
+  {
+    options+=8;
+    query["dataset"]["minute"]={};
+  }
+  /* May continue as a bit field with other datasets:
+  if (document.getElementById("dataset2").checked)
+  {
+    options+=4;
+    query["dataset"][""]={};
+  }
+  if (document.getElementById("dataset3").checked)
+  {
+    options+=2;
+    query["dataset"][""]={};
+  }
+  if (document.getElementById("dataset4").checked)
+  {
+    options+=1;
+    query["dataset"][""]={};
+  }*/
+  for (i=2; i<12; i++)
+  {
+    var elem=document.getElementById("dataset"+i);
+    if ((elem) && (elem.checked))
+      query["dataset"][elem.value]={};
+  }
+  var str;
+  //str1=parseInt(document.getElementById("minyear").value,10);
+  //var str2=parseInt(document.getElementById("maxyear").value,10);
+  var str1=document.getElementById("minyear").options[document.getElementById("minyear").selectedIndex].value;
+  var str2=document.getElementById("maxyear").options[document.getElementById("maxyear").selectedIndex].value;
+  str1=parseInt(str1,10);
+  str2=parseInt(str2,10);
+  if (!isNaN(str1))
+    query["metadata.date"]={"$gte": new Date(str1,0,1,0,0,0,0)};
+  if ((!isNaN(str2)) && ((isNaN(str1)) || (str2>=str1)))
+    if ("metadata.date" in query)
+      query["metadata.date"]["$lte"]=new Date(str2+1,0,1,0,0,0,0);
+    else
+      query["metadata.date"]={"$lte": new Date(str2+1,0,1,0,0,0,0)};
+  str=document.getElementById("window").value;
+  if (str!="0")
+    query["range"]=parseInt(str,10);
+  if ((options & 8)>0)
+  {
+    str=document.getElementById("party").value;
+    if (str!="none")
+    {
+      str=str.toLowerCase();
+      var exceptions={"sdp":"sd","rkp":"r","lib":"lkp","kipu":"Eduskuntaryhmä Virtanen", "ns":"Nuorsuomalaisten eduskuntaryhmä"};
+      if (str in exceptions)
+        str=exceptions[str];
+      query["dataset"]["minute"]["metadata.ekryhma"]=str;
+    }
+    str=document.getElementById("lang").value;
+    if (str!="none")
+      query["dataset"]["minute"]["metadata.kieli"]=str;
+    str=document.getElementById("sttype").value;
+    if (str!="none")
+      query["dataset"]["minute"]["metadata.tyyppi"]=str;
+    str=document.getElementById("speaker").value;
+    if (str!="")
+      query["dataset"]["minute"]["metadata.sukunimi"]=str;
+  }
+//Replace all kinds of double quotes, but not single quotes, with the regular character, ASCII 34
+  str=document.getElementById("lemma").value.replace(/[\u201c\u201d\u201e\u201f\u00ab\u00bb\u300a\u300b\u301d\u301e\u301f\uff02]/g,"\"");
+//Replace single quotes with the regular apostrophe, ASCII 39
+  str=str.replace(/[\u2018\u2019\u201a\u2039\u203a]/g,"'");
+  var tmp=[];
+  if ((str.indexOf("'")>=0) && (str.lastIndexOf("'")>=0))
+  {
+    query["text"]=str.slice(str.indexOf("'")+1,str.lastIndexOf("'"));
+    str=str.slice(0,str.indexOf("'"))+str.slice(str.lastIndexOf("'")+1);
+  }
+  var reverse_all=true;
+//Decide whether to reverse search terms, making use of the index on reversed lemmas.
+//Only reverse if all of them have or will have the $ modifier, but some lack the ^ modifier.
+  var words=str.replace(/\"/g,"").split(" ");
+  var starts=true,ends=true;
+  for (i=0; i<words.length; i++)
+  {
+    var txt=words[i].split("|")[0];
+    if (txt[txt.length-1]=="!")
+      continue;
+    if (txt[txt.length-1]!="$")
+      ends=false;
+    if ((txt[0]!="!" && txt[0]!="^") || (txt[0]=="!" && txt[1]!="^"))
+      starts=false;
+    if ((!starts) && (!ends))
+      break;
+  }
+  starts=starts || (settings["lemma"]%2==1);
+  ends=ends || (settings["lemma"]>1);
+  reverse_all=ends && (!starts);
+  if (str.length>0)
+  {
+//Get the indexes of all quotation marks
+    for (i=0; i<str.length; i++)
+      if (str[i] === "\"")
+        tmp.push(i);
+    var subqueries=[];
+//Capture and parse every word between quote pairs
+    for (i=0; i<tmp.length; i+=2)
+    {
+      var words=str.substring(tmp[i]+1,tmp[i+1]).split(" ");
+      var ands=[];
+      for (j=0; j<words.length; j++)
+        ands.push(parseLemma(words[j],"document",reverse_all));
+      subqueries.push({"words":{"$all":ands}});
+    }
+//Remove everything already parsed inside quotes
+    str=str.replace(/\".*?\"/g,"").trim().replace(/  +/g," ").split(" ");
+//Parse the remaining words left outside
+    for (j=0; j<str.length; j++)
+      if (str[j])
+        subqueries.push({"words":parseLemma(str[j],"document",reverse_all)});
+    var copy=JSON.parse(JSON.stringify(subqueries)); 
+    if (invert)
+//If at least one word needs negation, run the following loop and the transform after it
+    for (j=0; j<copy.length; j++)
+      if (copy[j]["words"]["$all"])
+      {
+        delete subqueries[j]["words"];
+        subqueries[j]["$and"]=[];
+        for (var k=0; k<copy[j]["words"]["$all"].length; k++)
+          subqueries[j]["$and"].push({"words":copy[j]["words"]["$all"][k]});
+      }
+    console.log(JSON.stringify(copy));
+    console.log(JSON.stringify(subqueries));
+    //return;
+    if (subqueries.length>1)
+      query["$or"]=subqueries;
+//remains the same
+    else
+      if ((invert) && ("$and" in subqueries[0]))
+        query["$and"]=subqueries[0]["$and"];
+      else
+        query["words"]=subqueries[0]["words"];
+  }
+  invert=false;
+  str=document.getElementById("radius").value;
+  query["radius"]=parseInt(str,10);
+  console.log(JSON.stringify(query));
+  //return;
+  if ("textContent" in document.body)
+    document.getElementById("pagenum").textContent=langs_misc[settings["lang"]]["misc.8"];
+  else
+    document.getElementById("pagenum").innerHTML=langs_misc[settings["lang"]]["misc.8"];
+  if (getStats)
+    query["stats"]=true;
+  jdata=callURL("main.py",JSON.stringify(query));
+  if (jdata=="error")
+  {
+    if ("textContent" in document.body)
+      document.getElementById("pagenum").textContent=langs_misc[settings["lang"]]["misc.9"]+" "+number+")";
+    else
+      document.getElementById("pagenum").innerHTML=langs_misc[settings["lang"]]["misc.9"]+" "+number+")";
+    return;
+  }
+  //console.log(jdata);
+  console.log(jdata.substr(0,14000));
+  if (getStats)
+  {
+    results=JSON.parse(jdata);
+    showStatistics();
+    return;
+  }
+  if (jdata.indexOf("\"data\":[]")!=-1)
+  {
+    if ("textContent" in document.body)
+      document.getElementById("pagenum").textContent=langs_misc[settings["lang"]]["misc.10"];
+    else
+      document.getElementById("pagenum").innerHTML=langs_misc[settings["lang"]]["misc.10"];
+    return;
+  }
+  results=JSON.parse(jdata);
+  console.log(results["time"]);
+  if (results["count"]<-1)
+  {
+    max=-results["count"];
+    more=true;
+  }
+  else
+  {
+    max=results["count"];
+    more=false;
+  }
+  document.getElementById("prev").disabled=(max<=pps);
+  document.getElementById("next").disabled=(max<=pps);
+  document.getElementById("savehtml").disabled=(max<=0);
+  document.getElementById("savecsv").disabled=(max<=0);
+  document.getElementById("showstats").disabled=(max<=0);
+  document.getElementById("savecoll").disabled=(max<=0);
+  datasets=results["datasets"];
+  results=results["data"];
+  renderCheckboxes=true;
+  page=1;
+  batch=1;
+  clean(0,results.length-1);
+  renderPage();
+}
+
+function colClick()
+{
+  var btn=document.getElementById("request_left");
+  if (this.contains(btn))
+    return;
+  if (btn)
+    btn.parentElement.removeChild(btn);
+  btn=document.getElementById("request_right");
+  if (btn)
+    btn.parentElement.removeChild(btn);
+  btn=document.createElement("button");
+  btn.id="request_left";
+  btn.innerHTML="<";
+  btn.addEventListener("click",function() {requestContext("request_left",-1);} );
+  this.appendChild(btn);
+  btn=document.createElement("button");
+  btn.id="request_right";
+  btn.innerHTML=">";
+  btn.addEventListener("click",function() {requestContext("request_right",1);} );
+  this.appendChild(btn);
+}
+
+function requestContext(btn,param)
+{
+  var cell=document.getElementById(btn).parentElement;
+//could be this.parentElement, but apparently the function(){} wrapper above prevents this from working
+  var dtype=cell.getAttribute("type");
+  var offset;
+  if (param==-1)
+    offset=-(parseInt(cell.getAttribute("loffset"),10)+1);
+  else
+    offset=parseInt(cell.getAttribute("roffset"),10)+1;
+  var query={"extend":true,"_id":cell.getAttribute("link"),"type":dtype,"offset":offset};
+  var answer=JSON.parse(callURL("main.py",JSON.stringify(query)));
+  if (answer["text"])
+  {
+    var row=cell.parentElement;
+    if (param==-1)
+    {
+      row.cells[2].innerHTML=answer["text"]+" "+row.cells[2].innerHTML;
+      cell.setAttribute("loffset",-offset);
+    }
+    else
+    {
+      row.cells[2].innerHTML+=" "+answer["text"];
+      cell.setAttribute("roffset",offset);
+    }
+  }
+}
+
+function tableCreate(colnames,headernames,tblname,data,target)
+{
+  var tbl=document.createElement('table');
+//  if (colnames.indexOf("text")==-1)
+//  modify inner table style here to compress it
+//    tbl.style.fontSize="10px";
+  var thead=document.createElement("thead");
+  var tbdy=document.createElement('tbody');
+  var i,j;
+  var cl=colnames.length, dl=data.length;
+  if (tblname!="")
+  {
+    var caption=document.createElement("caption");
+    caption.appendChild(document.createTextNode(tblname));
+    tbl.appendChild(caption);
+  }
+  var row=document.createElement("tr");
+  var th,td;
+  if (tblname!="")
+  {
+    th=document.createElement("th");
+    row.appendChild(th);
+  }
+  //var clgroup=document.createElement("colgroup");
+  for (j=0; j<cl; j++)
+  {
+    th=document.createElement("th");
+    th.appendChild(document.createTextNode(headernames[j]));
+    row.appendChild(th);
+    /*var column=document.createElement("col");
+    column.id="col_"+headernames[j];
+    clgroup.appendChild(column);*/
+  }
+  thead.appendChild(row);
+  for (i=0; i<dl; i++)
+  {
+    row=document.createElement("tr");
+    if (tblname!="")
+    {
+      td=document.createElement("td");
+      td.setAttribute("link",data[i]["_id"]);
+      var trans={"Pöytäkirjat":"minute"};
+      td.setAttribute("type",trans[tblname]);
+      td.setAttribute("loffset",data[i]["l"]);
+      td.setAttribute("roffset",data[i]["r"]);
+      td.style.width="20px";
+      td.onclick=colClick;
+      row.appendChild(td);
+    }
+    for (j=0; j<cl; j++)
+    {
+//We can also say that
+//if ((tblname=="") && (colnames[j]=="id"))
+//  td.appendChild(document.createTextNode(j+1);
+//but this will take a little longer
+      td=document.createElement("td");
+      if (colnames[j]=="words")
+        tableCreate(["id", "form", "lemma", "cpos", "feat", "head", "deprel", "misc"],["id", "form", "lemma", "cpos", "feat", "head", "deprel", "misc"],"",data[i]["words"],td);
+      else
+        if ((colnames[j]=="source") && (data[i][colnames[j]]!="-"))
+        {
+          var link=document.createElement("a");
+          var t=document.createTextNode("lähde");
+          link.appendChild(t);
+          link.href=data[i][colnames[j]];
+          link.target="_blank";
+          td.appendChild(link);
+        }
+        else
+          td.appendChild(document.createTextNode(data[i][colnames[j]]));
+      row.appendChild(td);
+    }
+    tbdy.appendChild(row);
+  }
+  tbl.appendChild(thead);
+  //tbl.appendChild(clgroup);
+  tbl.appendChild(tbdy);
+  target.appendChild(tbl);
+  if (colnames.indexOf("text")>-1)
+    tbl.className="top";
+}
+
+function csv_dialog()
+{
+  var i;
+  var fields=[];
+  var holder=document.getElementById("second");
+  var tempboxes=holder.childNodes;
+  var src=document.getElementById("csv").contentWindow.document;
+  for (i=0; i<tempboxes.length; i++)
+    if ((tempboxes[i].nodeType==Node.ELEMENT_NODE) && (tempboxes[i].tagName.toLowerCase()=="input"))
+      if (tempboxes[i].labels)
+        fields.push([tempboxes[i].labels[0].innerText,tempboxes[i].checked]);
+      else
+        fields.push([tempboxes[i].nextElementSibling.textContent,tempboxes[i].checked]);
+  var el=src.getElementById("div_fields");
+  while (el.firstChild)
+    el.removeChild(el.firstChild);
+  for (i=0; i<fields.length; i++)
+  {
+    var checkbox=document.createElement('input');
+    checkbox.type="checkbox";
+    checkbox.id="check_"+fields[i][0];
+    checkbox.checked=fields[i][1];
+    var label=document.createElement('label');
+    label.htmlFor=checkbox.id;
+    label.appendChild(document.createTextNode(fields[i][0]));
+    el.appendChild(checkbox);
+    el.appendChild(label);
+    el.appendChild(document.createElement("br"));
+  }
+  document.getElementById("csv").style.display="";
+}
+
+function escape_csv(s)
+{
+  s=s.replace(/\"/g,"\"\"");
+  if (s.indexOf("-")==0)
+    s="\u2013"+s.substr(1);
+  if ((s.indexOf(",")>=0) || (s.indexOf("\"")>=0))
+    s="\""+s+"\"";
+  return s;
+}
+
+function exprt(what,how)
+{
+    var temp="";
+    var i,j;
+    if (how=="HTML")
+    {
+      var tables=document.getElementsByClassName(what);
+      for (i=0; i<tables.length; i++)
+      {
+        var copy=tables[i].cloneNode(true);
+        var snum=-1;
+        var target=copy.querySelector("thead").firstChild; //tr inside thead
+        var th=target.childNodes;
+        for (j=0; j<th.length; j++)
+          if (th[j].innerHTML=="sanat")
+          {
+            snum=j;
+            break;
+          }
+        target.removeChild(th[snum]);
+        target.removeChild(th[0]);
+        target=copy.querySelector("tbody").childNodes;
+        for (j=0; j<target.length; j++) //remove td's inside tr's
+        {
+          target[j].removeChild(target[j].childNodes[snum]);
+          target[j].removeChild(target[j].childNodes[0]);
+        }
+        temp+="<table border='1'>"+copy.innerHTML+"</table>";
+      }
+      temp="<html><head></head><body>"+temp+"</body></html>";
+    }
+    if (how=="CSV")
+    {
+      var colnames=[];
+      var tempnames;
+      var hnames=[];
+      var temphnames;
+      var c=datasets.length;
+      var words=(what.indexOf("sanat")>=0);
+      for (i=0; i<c; i++)
+      {
+        if (datasets[i]["name"].split("_")[0]=="minute")
+        {
+          tempnames=["sentence","text","surname","name","status","party","oppos","sp_num","p_num","session","ptkviite","item","agenda","date","language","paragraph","type","vp","page"];
+          temphnames=["virke","teksti","sukunimi","etunimi","asema","puolue","oppositio","sp_num","p_num","istunto","ptkviite","asia_nro","aihe","pvm","kieli","kappale","tyyppi","vp","sivu"];
+        }
+        for (j=0; j<tempnames.length; j++)
+          if (what.indexOf(temphnames[j])>=0)
+          {
+            if (colnames.indexOf(tempnames[j])<0)
+              colnames.push(tempnames[j]);
+            if (hnames.indexOf(temphnames[j])<0)
+              hnames.push(temphnames[j]);
+          }
+      }
+      if (words)
+        hnames=hnames.concat(["sanat_id","sanat_form","sanat_lemma","sanat_cpos","sanat_feat","sanat_head","sanat_deprel"]);
+      temp="";
+      for (j=0; j<hnames.length; j++)
+      {
+        temp+=hnames[j];
+        if (j<hnames.length-1)
+          temp+=",";
+      }
+      temp+="\n";
+      for (i=0; i<results.length; i++)
+      {
+        for (j=0; j<colnames.length; j++)
+        {
+          if (!(colnames[j] in results[i]))
+          {
+            if (j<colnames.length-1)
+              temp+=",";
+            continue;
+          }
+          if ((colnames[j]=="ptkviite") && (typeof results[i][colnames[j]]=="string") && (results[i][colnames[j]].indexOf("/")>=0))
+          {
+            temp+=results[i][colnames[j]].replace(/\//g,"|")+",";
+            continue; //dirty - what if it's the last column? Needs more thought
+          }
+          if ((colnames[j]=="party") && (Array.isArray(results[i][colnames[j]])))
+          {
+            temp+="\""+results[i][colnames[j]]+"\",";
+            continue;
+          }
+          if ((colnames[j]=="sentence") && (typeof results[i][colnames[j]]==="string"))
+            temp+=results[i][colnames[j]].replace(/\//g,"\\");
+          else
+            if (colnames[j]=="text")
+            {
+              var block=results[i][colnames[j]];
+              block=block.replace(/\[Q\] /g,"[H] ").replace(/\[A\] /g,"[K] ").trim();
+              temp+=escape_csv(block);
+            }
+            else
+              if (typeof results[i][colnames[j]]==="string")
+                if ((colnames[j]=="date") && (results[i]["date"].indexOf(".")>=0))
+                {
+                  var ds=results[i][colnames[j]].split(".");
+                  if (ds[0].length==1)
+                    ds[0]="0"+ds[0];
+                  if (ds[1].length==1)
+                    ds[1]="0"+ds[1];
+                  temp+=ds[2]+"-"+ds[1]+"-"+ds[0];
+                }
+                else
+                  temp+=escape_csv(results[i][colnames[j]]);
+              else
+                temp+=results[i][colnames[j]];
+          if (j<colnames.length-1)
+            temp+=",";
+        }
+        temp+="\n";
+        if (words)
+          for (j=0; j<results[i]["words"].length; j++)
+          {
+            temp+=",".repeat(colnames.length);
+            temp+=results[i]["words"][j]["id"]+",";
+            temp+=escape_csv(results[i]["words"][j]["form"])+",";
+            temp+=escape_csv(results[i]["words"][j]["lemma"])+",";
+            temp+=results[i]["words"][j]["cpos"]+",";
+            temp+=results[i]["words"][j]["feat"]+",";
+            temp+=results[i]["words"][j]["head"]+",";
+            temp+=results[i]["words"][j]["deprel"];
+            temp+="\n";
+         }
+      }
+    }
+    var blob=new Blob(["\ufeff"+temp],{type: "application/octet-stream"});
+    var d=new Date();
+    var time=d.getFullYear()+("0"+(d.getMonth()+1)).slice(-2)+("0"+d.getDate()).slice(-2);
+    time+="_"+("0"+d.getHours()).slice(-2)+("0"+d.getMinutes()).slice(-2)+("0"+d.getSeconds()).slice(-2);
+    if (window.navigator && window.navigator.msSaveOrOpenBlob) //for IE and non-Chromium Edge
+      window.navigator.msSaveOrOpenBlob(blob,"results_"+time+"."+how.toLowerCase());
+    else
+    {
+      var link=document.createElement("a");
+      document.body.appendChild(link);
+      link.download="results_"+time+"."+how.toLowerCase();
+      link.href=window.URL.createObjectURL(blob);
+      link.click();
+      document.body.removeChild(link);
+      delete link;
+    }
+}
+
+function save_results()
+{
+  save_hist=true;
+  var dump=callURL("colls.py",JSON.stringify({"save":true,"radius":parseInt(document.getElementById("radius").value,10)}));
+  console.log(dump);
+  var name=JSON.parse(dump)["name"];
+  if (name!="")
+  {
+    settings["colls"].push(JSON.parse(dump)["name"]);
+    setColls(JSON.parse(dump)["name"],"add");
+    glob_colls++;
+  }
+}
+
+</script>
+<iframe id="settings" allowtransparency="false" src="iframe.html" width="500" height="400"></iframe>
+<iframe id="stats" allowtransparency="false" src="iframe2.html" width="1000" height="1000"></iframe>
+<iframe id="csv" allowtransparency="false" src="iframe3.html" width="500" height="400"></iframe>
+<div id="container">
+<div id="first">
+<form id="form" name="form">
+<div id="ddatasets">
+<span id="datasettext">Aineisto</span>
+<br>
+<input type="checkbox" name="dataset" id="dataset1" value="minute" onchange="toggle()">
+<label for="dataset1">Pöytäkirjat (1980&ndash;2021)</label>
+<input type="button" id="dsall" value="Poista valinnat" onclick="for (var i=0; i<glob_colls; i++) document.getElementById('dataset'+(i+1)).checked=false; toggle();">
+<!-- Further dataset checkboxes here
+<br>
+<input type="checkbox" name="dataset" id="dataset2" value="" disabled onchange="toggle()">
+<label for="dataset2"></label>
+<br>
+<input type="checkbox" name="dataset" id="dataset3" value="" disabled onchange="toggle()">
+<label for="dataset3"></label>
+-->
+</div>
+<br>
+<div id="general">
+<!--Filters applicable to all datasets here -->
+<label for="lemma">Lemma</label>
+<input type="text" id="lemma" size="60" value="" onkeyup="showWords()" onblur="document.getElementById('tooltip').style.display='none';">
+<input type="button" id="savelemma" value="Lisää suosikkeihin" onclick="addLemma()">
+<div id="tooltip">
+<table id="tooltip_words">
+<tr><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td></td><td></td><td></td><td></td><td></td></tr>
+</table>
+</div>
+<br>
+<label for="minyear">Vuodesta</label>
+<select id="minyear">
+  <option value="1980">1980</option>
+  <option value="1981">1981</option>
+  <option value="1982">1982</option>
+  <option value="1983">1983</option>
+  <option value="1984">1984</option>
+  <option value="1985">1985</option>
+  <option value="1986">1986</option>
+  <option value="1987">1987</option>
+  <option value="1988">1988</option>
+  <option value="1989">1989</option>
+  <option value="1990">1990</option>
+  <option value="1991">1991</option>
+  <option value="1992">1992</option>
+  <option value="1993">1993</option>
+  <option value="1994">1994</option>
+  <option value="1995">1995</option>
+  <option value="1996">1996</option>
+  <option value="1997">1997</option>
+  <option value="1998">1998</option>
+  <option value="1999">1999</option>
+  <option value="2000">2000</option>
+  <option value="2001">2001</option>
+  <option value="2002">2002</option>
+  <option value="2003">2003</option>
+  <option value="2004">2004</option>
+  <option value="2005">2005</option>
+  <option value="2006">2006</option>
+  <option value="2007">2007</option>
+  <option value="2008">2008</option>
+  <option value="2009">2009</option>
+  <option value="2010">2010</option>
+  <option value="2011">2011</option>
+  <option value="2012">2012</option>
+  <option value="2013">2013</option>
+  <option value="2014">2014</option>
+  <option value="2015">2015</option>
+  <option value="2016">2016</option>
+  <option value="2017">2017</option>
+  <option value="2018">2018</option>
+  <option value="2019">2019</option>
+  <option value="2020">2020</option>
+  <option value="2021">2021</option>
+</select>
+<!--<input type="number" min="1985" max="2017" step="1" id="minyear"/>-->
+<!--<input type="date" min="1988-01-01" max="2017-12-31" value="1988-01-01" id="minyear">-->
+<label for="maxyear">vuoteen</label>
+<!--<input type="number" min="1985" max="2017" step="1" id="maxyear"/>-->
+<select id="maxyear">
+  <option value="1980">1980</option>
+  <option value="1981">1981</option>
+  <option value="1982">1982</option>
+  <option value="1983">1983</option>
+  <option value="1984">1984</option>
+  <option value="1985">1985</option>
+  <option value="1986">1986</option>
+  <option value="1987">1987</option>
+  <option value="1988">1988</option>
+  <option value="1989">1989</option>
+  <option value="1990">1990</option>
+  <option value="1991">1991</option>
+  <option value="1992">1992</option>
+  <option value="1993">1993</option>
+  <option value="1994">1994</option>
+  <option value="1995">1995</option>
+  <option value="1996">1996</option>
+  <option value="1997">1997</option>
+  <option value="1998">1998</option>
+  <option value="1999">1999</option>
+  <option value="2000">2000</option>
+  <option value="2001">2001</option>
+  <option value="2002">2002</option>
+  <option value="2003">2003</option>
+  <option value="2004">2004</option>
+  <option value="2005">2005</option>
+  <option value="2006">2006</option>
+  <option value="2007">2007</option>
+  <option value="2008">2008</option>
+  <option value="2009">2009</option>
+  <option value="2010">2010</option>
+  <option value="2011">2011</option>
+  <option value="2012">2012</option>
+  <option value="2013">2013</option>
+  <option value="2014">2014</option>
+  <option value="2015">2015</option>
+  <option value="2016">2016</option>
+  <option value="2017">2017</option>
+  <option value="2018">2018</option>
+  <option value="2019">2019</option>
+  <option value="2020">2020</option>
+  <option value="2021">2021</option>
+</select>
+<br>
+<label for="party">Puolue</label>
+<select id="party">
+<option value="ALK">ALK</option>
+<option value="DEVA">DEVA</option>
+<option value="IKL">IKL</option>
+<option value="KD">KD</option>
+<option value="KESK">KESK</option>
+<option value="KIPU">KIPU</option>
+<option value="KOK">KOK</option>
+<option value="LIB">LIB</option>
+<option value="LKP">LKP</option>
+<option value="M11">M11</option>
+<option value="NS">NS</option>
+<option value="POP">POP</option>
+<option value="PS">PS</option>
+<option value="RKP">RKP</option>
+<option value="SDP">SDP</option>
+<option value="SKDL">SKDL</option>
+<option value="SKL">SKL</option>
+<option value="SKYP">SKYP</option>
+<option value="SMP">SMP</option>
+<option value="TPSL">TPSL</option>
+<option value="VAS">VAS</option>
+<option value="VIHR">VIHR</option>
+<option value="none" selected>Mikä tahansa</option>
+</select>
+</div>
+</div>
+<div id="partial_dataset1">
+<!--Filters only applicable to dataset1 here-->
+<br>
+<label for="sttype">Virkkeen lähde</label>
+<select id="sttype" form="form">
+  <option value="varsinainen">Varsinainen puheenvuoro</option>
+  <option value="vastaus">Vastauspuheenvuoro</option>
+  <option value="ryhma">Ryhmäpuheenvuoro</option>
+  <option value="puhemies">Puhemiehen huomautus</option>
+  <option value="none" selected>Mikä tahansa</option>
+</select>
+<br>
+<label for="lang">Kieli</label>
+<select id="lang" form="form">
+  <option value="suomi">Suomi</option>
+  <option value="ruotsi">Ruotsi</option>
+  <option value="none" selected>Kumpi tahansa</option>
+</select>
+<br>
+<label for="speaker">Puhuja</label>
+<input type="text" id="speaker" size="20" value="">
+</div>
+<div id="partial_dataset2">
+<!--Metadata filters for other datasets here-->
+</div>
+<div id="partial_dataset3">
+</div>
+<br>
+<span id="radiustext1">Palauta</span>
+<input type="number" min="0" max="5" step="1" id="radius" value="0"/>
+<span id="radiustext2">lisävirkettä tuloksen kummaltakin puolelta</span>
+<br>
+<span id="windowtext">Maksimietäisyys hakusanasta toiseen</span>
+<input type="number" min="0" max="5" step="1" id="window" value="0"/>
+</form>
+<select id="history"></select>
+<br>
+<select id="favourites" oncontextmenu="removeLemma(); return false"></select>
+<br>
+<input type="button" id="btn1" value="Hae" onclick="processForm(false)">
+<br>
+<input type="button" id="prev" value="Edellinen sivu" disabled onclick="page--; renderPage()" autocomplete="off">
+<span id="pagenum"></span>
+<input type="button" id="next" value="Seuraava sivu" disabled onclick="page++; renderPage()" autocomplete="off">
+<br>
+<input type="button" id="savehtml" onclick="exprt('top','HTML')" disabled value="Tallenna sivu HTML-muotoon" autocomplete="off">
+<input type="button" id="savecsv" onclick="csv_dialog()" disabled value="Tallenna kaikki CSV-muotoon" autocomplete="off">
+<input type="button" id="savecoll" onclick="save_results()" disabled value="Tallenna kaikki omaan kokoelmaan" autocomplete="off">
+<br>
+<input type="button" id="showstats" onclick="processForm(true)" value="Tilastot" autocomplete="off">
+<!-- autocomplete=off forces Firefox to keep these buttons disabled when the page is refreshed - 
+even though they're meant to be disabled initially, it tries to keep all form elements unchanged
+after the refresh and thus may preserve the buttons enabled once a previous search switched them on -->
+<br>
+</div>
+<div id="middle">
+<input type="button" id="showsettings" onclick="if (document.getElementById('settings').style.display=='') hideSettings(); else showSettings();" value="Asetukset">
+</div>
+<div id="second">
+</div>
+</div>
+</body>
+</html>

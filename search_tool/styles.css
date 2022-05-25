@@ -1,0 +1,112 @@
+table
+{
+  font-family: "Helvetica", "Lucida Sans", "Lucida Sans Unicode", "Luxi Sans", Tahoma, sans-serif;
+  box-shadow: 1px 1px 10px rgba(0,0,0,0.5);
+  border-collapse: collapse;
+  border-spacing: 0;
+  margin: auto;
+}
+
+table, td, th
+{
+  padding: 3px;
+  text-align: center;
+  border: 1px solid rgb(8,48,107);
+}
+
+th
+{
+  background-color: rgb(8,81,156);
+  color: white;
+}
+
+caption
+{
+  text-align: left;
+  font-weight: bold;
+}
+
+#container
+{
+  width: 100%;
+  margin: auto;
+  height: 300px;
+}
+
+#first
+{
+  width: 75%;
+  float: left;
+}
+
+#ddatasets
+{
+  width: 40%;
+  position: relative;
+  height: 100%;
+}
+
+#dsall, #sall
+{
+  float: right;
+  border-width: 1px;
+  padding: 0px;
+  margin: -1px;
+}
+
+#middle
+{
+  width: 10%;
+  float: left;
+}
+
+#second
+{
+  width: 15%;
+  float: left;
+}
+
+#history
+{
+  font-size: 12px;
+  width: 600px;
+}
+
+#settings
+{
+  z-index: 13;
+  position: absolute;
+  left: 600px;
+  background-color: white;
+}
+
+#csv
+{
+  z-index: 15;
+  position: absolute;
+  top: 200px;
+  background-color: white;
+}
+
+#general
+{
+  position: relative;
+}
+
+#tooltip_words
+{
+  table-layout: fixed;
+  width: 550px;
+  /*float: left;*/
+}
+
+#tooltip_words tr td
+{
+  font-size: 10px;
+  width: 110px;
+}
+
+input
+{
+  box-sizing: border-box;
+}

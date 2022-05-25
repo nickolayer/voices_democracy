@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<head>
+<meta charset="utf-8">
+<style type="text/css">
+.grid li
+{
+  display: block;
+  float: left;
+  width: 25%;
+}
+
+ul
+{
+  padding-left: 0;
+  list-style: none;
+}
+
+div
+{
+  opacity: 1;
+}
+
+#div_fields
+{
+  width:40%;
+}
+</style>
+<script type="text/javascript">
+function save()
+{
+  var i;
+  var holder=document.getElementById("div_fields");
+  var fields=[];
+  var boxes=holder.childNodes;  
+  for (i=0; i<boxes.length; i++)
+    if ((boxes[i].nodeType==Node.ELEMENT_NODE) && (boxes[i].tagName.toLowerCase()=="input"))
+      if (boxes[i].checked)
+        fields.push(boxes[i].id.substr(6));
+  window.parent.exprt(fields,"CSV");
+  holder=window.parent.document.getElementById('csv');
+  holder.style.display='none';
+}
+</script>
+<body>
+<div id="div_fields">
+</div>
+<p>
+<input type="button" id="save" value="Tallenna" onclick="save()">
+<input type="button" id="close" value="Sulje" onclick="var f=window.parent.document.getElementById('csv'); f.style.display='none';"> 
+</p>
+</body>
+</html>

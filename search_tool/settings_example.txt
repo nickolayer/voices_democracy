@@ -1,0 +1,7 @@
+lang=fi
+hide_columns=[]
+results_page=100
+lemmas=[]
+lemma=3
+colls=[]
+history_size=100

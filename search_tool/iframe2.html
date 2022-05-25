@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<head>
+<meta charset="utf-8">
+<style type="text/css">
+table {
+  font-family: "Helvetica", "Lucida Sans", "Lucida Sans Unicode", "Luxi Sans", Tahoma, sans-serif;
+  box-shadow: 1px 1px 10px rgba(0,0,0,0.5);
+  border-collapse: collapse;
+  border-spacing: 0;
+  margin:auto;
+}
+
+table, td, th {
+  padding: 3px;
+  text-align: center;
+  border: 1px solid rgb(8,48,107);
+}
+th {
+  background-color: rgb(8,81,156);
+  color: white;
+}
+caption {
+  text-align: left;
+  font-weight: bold;
+}
+
+#left,#middle
+{
+  width:35%;
+  float:left;
+}
+
+#right
+{
+  width:20%;
+  float:left;
+}
+
+#rightmost
+{
+  width:10%;
+  float:left;
+}
+</style>
+<script>
+
+function draw()
+{
+  var r=parent.results;
+  var k,i;
+  model=[];
+  var lstr=parent.langs_misc[parent.settings["lang"]]["misc.11"];
+  var wstr=parent.langs_misc[parent.settings["lang"]]["misc.12"];
+  var ystr=parent.langs_misc[parent.settings["lang"]]["misc.13"];
+  var cstr=parent.langs_misc[parent.settings["lang"]]["misc.14"];
+  for (k in r["stats"]["years"])
+  {
+    model.push({"Vuosi":k,"Määrä":r["stats"]["years"][k]});
+  }
+  var t=r["stats"]["total"];
+  model.push({"Vuosi":parent.langs_misc[parent.settings["lang"]]["misc.15"],"Määrä":t});
+  window.parent.tableCreate(["Vuosi","Määrä"],[ystr,cstr],parent.langs_misc[parent.settings["lang"]]["misc.18"],model,document.getElementById("middle"));
+  model=[];
+  for (k in r["stats"]["lemmas"])
+    model.push({"Lemma":k,"Määrä":r["stats"]["lemmas"][k]});
+  var ptrn=r["stats"]["patterns"][0];
+  if (ptrn[0]=="^")
+    ptrn=ptrn.substring(1);
+  if (ptrn[ptrn.length-1]=="$")
+    ptrn=ptrn.slice(0,-1);
+  for (k=0; k<r["stats"]["patterns"].length; k++)
+    r["stats"]["patterns"][k]=new RegExp(r["stats"]["patterns"][k]);
+  var narr=[];
+  for (k=0; k<model.length; k++)
+    for (i=0; i<r["stats"]["patterns"].length; i++)
+      if (r["stats"]["patterns"][i].test(model[k]["Lemma"]))
+      {
+        narr.push(model[k]);
+        break;
+      }
+  model.sort(function(a,b)
+  {
+    /*for (k=0; k<r["stats"]["patterns"].length; k++)
+    {
+      if (r["stats"]["patterns"][k].test(a["Lemma"]))
+        return -1000000;
+      if (r["stats"]["patterns"][k].test(b["Lemma"]))
+        return 1000000;
+    }*/
+    return a["Lemma"].localeCompare(b["Lemma"]);
+  });
+  for (k=0; k<model.length; k++)
+    for (i=0; i<r["stats"]["patterns"].length; i++)
+      if (!(r["stats"]["patterns"][i].test(model[k]["Lemma"])))
+      {
+        narr.push(model[k]);
+        break;
+      }
+  r["stats"]["lemmas"]=narr;
+  window.parent.tableCreate(["Lemma","Määrä"],[lstr,cstr],parent.langs_misc[parent.settings["lang"]]["misc.17"],narr,document.getElementById("left"));
+  window.parent.tableCreate(["Word","Count"],[wstr,cstr],parent.langs_misc[parent.settings["lang"]]["misc.19"]+" "+ptrn+"+...",r["stats"]["tree"][0],document.getElementById("right"));
+  for (i=1; i<r["stats"]["tree"].length; i++)
+    if (r["stats"]["tree"][0][i]["Word"]!="[ei sanaa]")
+      window.parent.tableCreate(["Word","Count"],[wstr,cstr],parent.langs_misc[parent.settings["lang"]]["misc.19"]+" "+ptrn+"+"+r["stats"]["tree"][0][i]["Word"]+"+...",r["stats"]["tree"][i],document.getElementById("right"));
+}
+
+function exprt2()
+{
+    var r=parent.results;
+    var temp="";
+    var colnames=["lemma","count","empty","year","count"];
+    var i,j;
+    temp="";
+    for (j=0; j<colnames.length; j++)
+    {
+      temp+=colnames[j];
+      if (j<colnames.length-1)
+        temp+=",";
+    }
+    temp+="\n";
+	i=0;
+	var y=[];
+	for (k in r["stats"]["years"])
+      y.push({"Vuosi":k,"Määrä":r["stats"]["years"][k]});
+    for (l=0; l<r["stats"]["lemmas"].length; l++)
+    {
+	  //temp+=l+","+r["stats"]["lemmas"][l]+",";
+      temp+=r["stats"]["lemmas"][l]["Lemma"]+","+r["stats"]["lemmas"][l]["Määrä"]+",";
+	  temp+=",";
+	  if (i<y.length)
+	    temp+=y[i]["Vuosi"]+","+y[i]["Määrä"];
+	  else
+	    temp+=",";
+      i++;
+      temp+="\n";
+    }
+    var blob=new Blob(["\ufeff"+temp],{type: "application/octet-stream"});
+    var d=new Date();
+    var time=d.getFullYear()+("0"+(d.getMonth()+1)).slice(-2)+("0"+d.getDate()).slice(-2);
+    time+="_"+("0"+d.getHours()).slice(-2)+("0"+d.getMinutes()).slice(-2)+("0"+d.getSeconds()).slice(-2);
+    if (window.navigator && window.navigator.msSaveOrOpenBlob)
+      window.navigator.msSaveOrOpenBlob(blob,"statistics_"+time+".csv");
+    else
+    {
+      var link=document.createElement("a");
+      document.body.appendChild(link);
+      link.download="statistics_"+time+".csv";
+      link.href=window.URL.createObjectURL(blob);
+      link.click();
+      document.body.removeChild(link);
+      delete link;
+    }
+}
+ 
+</script>
+<body onclick="self.close();">
+<div id="left">
+</div>
+<div id="middle">
+</div>
+<div id="right">
+</div>
+<div id="rightmost">
+<input type="button" id="cls" value="Sulje" onclick="var f=window.parent.document.getElementById('stats'); f.style.display='none';">
+<input type="button" id="exp" value="Tallenna CSV-muotoon" onclick="exprt2()">
+<!--<div id="trueright"> </div>-->
+</div>
+</body>
+</html>

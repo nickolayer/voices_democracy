@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<head>
+<meta charset="utf-8">
+<style type="text/css">
+.grid li
+{
+  display: block;
+  float: left;
+  width: 25%;
+}
+
+ul
+{
+  padding-left: 0;
+  list-style: none;
+}
+
+div
+{
+  opacity: 1;
+}
+</style>
+<body>
+<div>
+<label for="lang">Kieli</label>
+<select id="lang">
+  <option value="fi">suomi</option>
+  <option value="en">englanti</option>
+</select>
+<br>
+<label for="history_size">Hakuhistorian koko</label>
+<select id="history_size">
+  <option value="10">10</option>
+  <option value="25">25</option>
+  <option value="50">50</option>
+  <option value="100" selected>100</option>
+</select>
+<br>
+<label for="pps">Tuloksia per sivu</label>
+<select id="pps">
+  <option value="25">25</option>
+  <option value="50">50</option>
+  <option value="100" selected>100</option>
+  <option value="200">200</option>
+</select>
+<p id="lemmatext">Lemmasta voi tulla:</p>
+<input type="radio" name="lemma" value="1" id="lemma1" checked/><label for="lemma1">mikä tahansa osa sanaa</label><br>
+<input type="radio" name="lemma" value="2" id="lemma2"/><label for="lemma2">aina sanan alku</label><br>
+<input type="radio" name="lemma" value="3" id="lemma3"/><label for="lemma3">aina sanan loppu</label><br>
+<input type="radio" name="lemma" value="4" id="lemma4"/><label for="lemma4">vain kokonainen sana</label><br>
+<p id="checkboxtext">Näytä nämä sarakkeet hakutuloksissa:</p>
+<ul class="grid">
+<li><input type="checkbox" id="frame1" value="virke" checked>
+<label for="frame1">virke</label></li>
+<li><input type="checkbox" id="frame2" value="teksti" checked>
+<label for="frame2">teksti</label></li>
+<li><input type="checkbox" id="frame3" value="sanat" checked>
+<label for="frame3">sanat</label></li>
+<li><input type="checkbox" id="frame4" value="etunimi" checked>
+<label for="frame4">etunimi</label></li>
+<li><input type="checkbox" id="frame5" value="sukunimi" checked>
+<label for="frame5">sukunimi</label></li>
+<li><input type="checkbox" id="frame6" value="pvm" checked>
+<label for="frame6">pvm</label></li>
+<li><input type="checkbox" id="frame7" value="kappale" checked>
+<label for="frame7">kappale</label></li>
+<li><input type="checkbox" id="frame8" value="nro" checked>
+<label for="frame8">nro</label></li>
+<li><input type="checkbox" id="frame9" value="puolue" checked>
+<label for="frame9">puolue</label></li>
+<li><input type="checkbox" id="frame10" value="asema" checked>
+<label for="frame10">asema</label></li>
+<li><input type="checkbox" id="frame11" value="sp_num" checked>
+<label for="frame11">sp_num</label></li>
+<li><input type="checkbox" id="frame12" value="p_num" checked>
+<label for="frame12">p_num</label></li>
+<li><input type="checkbox" id="frame13" value="kieli" checked>
+<label for="frame13">kieli</label></li>
+<li><input type="checkbox" id="frame14" value="tyyppi" checked>
+<label for="frame14">tyyppi</label></li>
+</ul>
+<p>
+<input type="button" id="close" value="Sulje" onclick="window.parent.hideSettings();"> 
+</p>
+</div>
+</body>
+</html>
