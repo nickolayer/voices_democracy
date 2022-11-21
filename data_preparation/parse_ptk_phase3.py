@@ -1,7 +1,10 @@
 import io
 import re
-import os
+from os import sep
+from os.path import abspath
 from glob import glob
+
+import common_ops
 
 # This script performs the processing of phase 3 parliamentary records (from 2015 and later).
 # It separates the original files into text and metadata, runs them through the dependency parser
@@ -57,7 +60,7 @@ def split_file(name):
 	asia_props=["sasia","aktyyppi","akviite","kasvaihe"]+pvuoro_props
 	codes=["Hallituksen esitys HE","Lakialoite LA","Kertomus K","Valtioneuvoston selonteko VNS","Keskustelualoite KA","Toimenpidealoite TPA","Talousarvioaloite TAA",u"Vapautuspyynt\xf6 VAP",u"P\xe4\xe4ministerin ilmoitus PI","Valtioneuvoston tiedonanto VNT","Vaali VAA","Kansalaisaloite KAA","Suullinen kysymys SKT",u"V\xe4likysymys VK",u"Lep\xe4\xe4m\xe4\xe4n hyv\xe4ksytty lakiehdotus LJL",u"Valtioneuvoston kirjelm\xe4 VN",u"Eduskuntaty\xf6n j\xe4rjest\xe4minen ETJ","Muu asia M","Puhemiesneuvoston ehdotus PNE"]
 	pcodes={u"Ensimm\xe4inen":u"ensimmainen","Toinen":"toinen","Kolmas":"kolmas","Yksi":"yksikasittely","Ainoa":"ainoa","Osittain ainoa, osittain toinen":"toinenainoa"}
-	govs=[{"from":"2014-04-04","to":"2014-06-23","parties":["sd","kok","vihr","kd","rkp"]},{"from":"2014-06-24","to":"2014-08-18","parties":["sd","kok","vihr","kd","rkp"]},{"from":"2014-09-18","to":"2015-05-28","parties":["sd","kok","kd","rkp"]},{"from":"2015-05-29","to":"2017-06-12","parties":["kok","kesk","ps"]},{"from":"2017-06-13","to":"2019-06-05","parties":["kok","kesk","si","sin"]},{"from":"2019-06-06","to":"2019-12-09","parties":["sd","kesk","vihr","vas","rkp"]},{"from":"2019-12-10","to":"2021-10-10","parties":["sd","kesk","vihr","vas","rkp"]}]
+	govs=[{"from":"2014-04-04","to":"2014-06-23","parties":["sd","kok","vihr","kd","rkp"]},{"from":"2014-06-24","to":"2014-08-18","parties":["sd","kok","vihr","kd","rkp"]},{"from":"2014-09-18","to":"2015-05-28","parties":["sd","kok","kd","rkp"]},{"from":"2015-05-29","to":"2017-06-12","parties":["kok","kesk","ps"]},{"from":"2017-06-13","to":"2019-06-05","parties":["kok","kesk","si","sin"]},{"from":"2019-06-06","to":"2019-12-09","parties":["sd","kesk","vihr","vas","rkp"]},{"from":"2019-12-10","to":"2022-11-20","parties":["sd","kesk","vihr","vas","rkp"]}]
 	for i in range(0,len(lines)):
 		if "\x0C" in lines[i]:
 			attribs["versio"]=lines[i-1].strip()
@@ -77,8 +80,8 @@ def split_file(name):
 			attribs["date"]="-".join(parts[::-1])+" "+kaika
 			break
 	dt=attribs["date"][0:10]
-	attribs["tunniste"]=lines[0][lines[0].index("PTK"):].strip()
-	attribs["tunniste"]=attribs["tunniste"].split(" ")[1].split("/")[1]
+	attribs["vp"]=lines[0][lines[0].index("PTK"):].strip()
+	attribs["vp"]=attribs["vp"].split(" ")[1].split("/")[1]
 	attribs["inro"]=int(lines[0][lines[0].index("PTK ")+4:lines[0].index("/")])
 	for i in range(0,len(lines)):
 		count+=1
@@ -309,39 +312,7 @@ def split_file(name):
 			text+=" "
 	outf.close()
 
-def group_texts(textpath,packpath,maxlines):
-# Concatenates individual split files into larger packs.
-# The last file that goes over the maxlines limit will be fully included.
-	count=1
-	outf=io.open(packpath+os.sep+"pack"+str(count).rjust(2,"0")+"_split.txt","w",encoding="utf-8")
-	lines=0
-	for name in sorted(glob(textpath+os.sep+"*_split.txt")):
-		inf=io.open(name,"r",encoding="utf-8")
-		for line in inf:
-			outf.write(line)
-			lines+=1
-		inf.close()
-		if lines>=maxlines:
-			outf.close()
-			count+=1
-			outf=io.open(packpath+os.sep+"pack"+str(count).rjust(2,"0")+"_split.txt","w",encoding="utf-8")
-			lines=0
-	outf.close()
-
-def test_file(filename):
-# Complains if a split file or pack doesn't have metadata in odd-numbered lines,
-# or has them in even-numbered lines.
-	file=io.open(filename,"r",encoding="utf-8")
-	count=0
-	for line in file:
-		count+=1
-		if ("###C:" not in line and count%2==1) or ("###C:" in line and count%2==0):
-			print("Error in line "+str(count)+", file "+filename)
-			print(line)
-			break
-	file.close()
-	
-def mark_pages(filename,raw_path):
+def mark_pages(parsed,raw_path,output):
 # Adds page numbers to every sentence of a parsed file.
 # They are drawn from the original text files, where page breaks are form feed characters.
 # The parsed file may contain multiple documents, which should have their originals stored under raw_path.
@@ -356,15 +327,16 @@ def mark_pages(filename,raw_path):
 	parstart=-1
 	sentstart=-1
 	parflag=False
-	source=io.open(filename,"r",encoding="utf-8")
-	dest=io.open(filename.replace("_parsed","_final"),"w",encoding="utf-8")
+	if not raw_path.endswith(sep):
+		raw_path+=sep
+	source=io.open(parsed,"r",encoding="utf-8")
+	dest=io.open(output,"w",encoding="utf-8")
 	for line in source:
 		if line.startswith("###C:"):
 			attribs=line.replace("\n","").split("|")
 			attribs={pair.split("=")[0]:pair.split("=")[1] for pair in attribs [1:]}
 			docid=str(attribs["vp"])+"ptk"+str(attribs["inro"]).rjust(3,"0")
 			if docid!=old_docid:
-				print(docid)
 				raw=io.open(raw_path+docid+".txt","r",encoding="utf-8")
 				s=raw.read()
 				raw.close()
@@ -375,7 +347,7 @@ def mark_pages(filename,raw_path):
 					if lines[i][-1]=="-":
 # if a line ends in a hyphen, the remainder of the word must be found on the next line, deleted from there and glued to the beginning
 						next=i+1
-						if not lines[i+1]: # page break
+						if (not lines[i+1]) or lines[i+1].strip() in ["Valmis","Tarkistettu",u"Hyv\xe4ksytty"]: # page break
 # in case of a page break, the next line continues only after the page's footer, so a few lines before that must be skipped
 							for j in range(i+1,i+20):
 # furthermore, the first page's footer contains the document's version and status, not the page number like all subsequent ones
@@ -435,13 +407,12 @@ def mark_pages(filename,raw_path):
 				i=len(buffer)-1
 				while buffer[i]!="\n":
 					i-=1
-				buffer.insert(i+1,"###C:PAGE|page="+str(temppage)+"\n")
+				buffer.insert(i+1,"###C:PAGE|page="+str(temppage).decode("utf-8")+"\n")
 			buffer.append(line)
 			sentstart=-1
 			continue
 		parflag=False
 		word=line.split("\t")[1]
-		print((word,pos))
 		pos+=s[pos:].index(word)+len(word)
 		if parstart==-1:
 			parstart=pos-len(word)
@@ -478,21 +449,20 @@ for file in glob("./*.txt"):
 		split_file(file)
 
 # Stack split files into larger packs
-group_texts(".","../packs",25000)
+common_ops.stack_splits(sorted(glob("./split/*.txt")),"./packs",25000)
 
 # Test the structure of packs
-for file in sorted(glob("../packs/pack??_split.txt")):
-	test_file(file)
+for file in glob("../packs/pack??_split.txt"):
+	common_ops.test_file(file)
 
 # Parse the packs
-os.chdir("Finnish-dep-parser")
-for file in glob("../packs/pack??_split.txt"):
-	runstr="./split_text_with_comments.sh < \""+file+"\" | ./parse_conll.sh | python split_clauses.py > \""+file.replace("split","parsed")+"\""
+for file in glob("../packs/pack??_split.txt")[1:]:
 	print("Parsing "+file)
-	os.system(runstr)
+	file=abspath(file)
+	common_ops.parse(file,file.replace("_split.txt","_parsed.txt"))
 
 # Add page numbers
-for file in sorted(glob("../packs/pack??_parsed.txt")):
-	mark_pages(file,"/txt/")
+for file in glob("../packs/pack??_parsed.txt"):
+	mark_pages(file,"./texts",file.replace("_parsed","_final"))
 
 # Files pack??_final.txt are now suitable for DB insertion

@@ -16,16 +16,14 @@ var pps=100;
 var max=99;
 var batch=1;
 var maxp=Math.floor(1000/pps);
-var renderCheckboxes=true;
 var more=false;
 var invert=false;
 var datasets;
-//var settings={"history_size":100,"results_page":100,"lemma":1,"hide_columns":["heading2"],"colls":[],"lang":"fi","lemmas":[]};
 var settings={};
 var hist;
 var save_hist=false;
 var glob_colls=1;
-var baseURL="cgi-bin/";
+var baseURL="cgi-bin/"; //point WSGIScriptAlias here and change callURL calls accordingly
 var pairs;
 
 function callURL(who,what)
@@ -51,7 +49,7 @@ function getHistory(fetch)
 {
   if (fetch)
   {
-    var dump=callURL("history.py",JSON.stringify({"name":"123"}));
+    var dump=callURL("history",JSON.stringify({"name":"123"}));
     hist=JSON.parse(dump);
   }
   var out=hist.slice(0,settings["history_size"]);
@@ -119,7 +117,7 @@ function setColls(name,op)
     elem.onclick=function()  
     {
       setColls(name,"remove");
-      console.log(callURL("colls.py",JSON.stringify({"delete":true,"name":name})));
+      console.log(callURL("colls",JSON.stringify({"delete":true,"name":name})));
       glob_colls--;
     };
     d.appendChild(elem);
@@ -154,7 +152,7 @@ function setColls(name,op)
 
 function getSettings()
 {
-  var dump=callURL("settings.py",JSON.stringify({"name":"123"}));
+  var dump=callURL("settings",JSON.stringify({"name":"123"}));
   var def_settings={"hide_columns":[],"history_size":100,"lemma":1,"lemmas":"","results_page":100,"colls":[],"lang":"fi"};
   settings=def_settings;
   if (dump!="error")
@@ -272,7 +270,7 @@ function showStatistics()
   var src=document.getElementById("stats").contentWindow.document;
   var divs=src.getElementsByTagName("div");
   for (var i=0; i<divs.length-1; i++)
-    while(divs[i].firstChild)
+    while (divs[i].firstChild)
       divs[i].removeChild(divs[i].firstChild);
   document.getElementById("stats").contentWindow.draw();
   document.getElementById("stats").style.display="";
@@ -370,7 +368,7 @@ function cleanup()
   if (!save_hist)
     return;
   settings["save"]=true;
-  var dump=callURL("settings.py",JSON.stringify(settings));
+  var dump=callURL("settings",JSON.stringify(settings));
   delete settings["save"];
 }
 
@@ -396,7 +394,7 @@ function loadQuery()
             document.getElementById("dataset1").checked=true;
             break;
           default:
-            for (var k=2; k<12; k++)
+            for (var k=glob_colls+1; k<glob_colls+11; k++)
             {
               var elem=document.getElementById("dataset"+k);
               if (!elem)
@@ -418,9 +416,10 @@ function loadQuery()
 
 function loadLemma()
 {
-  var v=document.getElementById("favourites").value;
-  if (v.indexOf(langs_misc[settings["lang"]]["misc.4"])==-1)
-    document.getElementById("lemma").value=v;
+  var d=document.getElementById("favourites");
+  var i=d.selectedIndex;
+  if (d.options[i].innerText!=langs_misc[settings["lang"]]["misc.4"])
+    document.getElementById("lemma").value=d.options[i].innerText;
 }
 
 function addLemma()
@@ -484,6 +483,7 @@ function showWords()
   {
     valid=false;
   }
+  var rescnt=0;
   if (!valid)
     results.push("---");
   else
@@ -491,13 +491,14 @@ function showWords()
       if (pairs[0][i].search(str)>=0)
       {
         results.push(pairs[0][i]+": "+pairs[1][i]);
-        if (results.length>35)
+		rescnt++;
+        if (rescnt>35)
           break;
       }
-  if (results.length==0)
+  if (rescnt==0)
     return;
   el=document.getElementById("tooltip_words");
-  var cnt=0,j=0;
+  var cnt=0, j=0;
   for (i=0; i<el.rows.length; i++)
   {
     var row=el.rows[i];
@@ -567,8 +568,11 @@ function clean(start,end)
       else
         results[i]["type"]="-";
       var n=results[i]["metadata"]["inro"].toString();
-      var y=results[i]["metadata"]["tunniste"].toString();
-      results[i]["vp"]=y;
+      if ("tunniste" in results[i]["metadata"])
+        results[i]["vp"]=results[i]["metadata"]["tunniste"].toString();
+      else
+        results[i]["vp"]=results[i]["metadata"]["vp"];
+      var y=results[i]["vp"];
       results[i]["source"]="https://www.eduskunta.fi/FI/vaski/Poytakirja/Documents/PTK_"+n+"+"+y+".pdf";
       var pagenum=-1;
       if ("page" in results[i]["metadata"])
@@ -671,7 +675,7 @@ function renderPage()
     var query="";
     var ob={"batch":newbatch,"radius":parseInt(document.getElementById("radius").value,10)};
     console.log(JSON.stringify(ob));
-    jdata=callURL("main.py",JSON.stringify(ob));
+    jdata=callURL("main",JSON.stringify(ob));
     if (jdata.indexOf("\"count\":-1")>-1)
     {
       page--;
@@ -712,7 +716,7 @@ function renderPage()
     results=results.concat(results2["data"]);
     clean(offset,results.length-1);
   }
-  var pl=more?"+":"";
+  var pl=more? "+": "";
   maxpage=max%pps===0? Math.floor(max/pps): Math.floor(max/pps+1);
   if ("textContent" in document.body)
     document.getElementById("pagenum").textContent=langs_misc[settings["lang"]]["misc.6a"]+" "+page+"/"+maxpage+" ("+max+pl+" "+langs_misc[settings["lang"]]["misc.6b"]+")";
@@ -735,7 +739,6 @@ function renderPage()
   if (max==0)
     return;
   var idx=-1;
-  var tempidx=0;
   var checkboxnames=[];
   for (var d=0; d<datasets.length; d++)
   {
@@ -761,12 +764,11 @@ function renderPage()
     }
     if (datasets[d]["name"].indexOf("_")>=0)
       tname+=" ("+datasets[d]["name"].split("_")[1]+")";
-    for (var n=0; n<colnames.length; n++)
+    for (var n=0; n<hnames.length; n++)
       if (checkboxnames.indexOf(hnames[n])==-1)
         checkboxnames.push(hnames[n]);
     document.getElementById("body").appendChild(document.createElement("br"));
     tableCreate(colnames,hnames,tname,temp,document.getElementById("body"));
-    tempidx++;
   }
   var holder=document.getElementById("second");
   var tempstates={};
@@ -835,7 +837,7 @@ var listener=function(e)
     target=e.target.labels[0].innerText;
   else
     target=e.target.nextElementSibling.textContent;
-  var result=e.target.checked?"":"none";
+  var result=e.target.checked? "": "none";
   for (i=0; i<tables.length; i++)
   {
     var rows=tables[i].rows;
@@ -858,7 +860,7 @@ var listener=function(e)
     for (j=0; j<cols.length; j++)
       if (cols[j].id=="col_"+target)
       {
-        cols[i].style.display=e.target.checked?"":"collapse";
+        cols[i].style.display=e.target.checked? "": "collapse";
         break;
       }
 */
@@ -866,6 +868,14 @@ var listener=function(e)
 
 function reverseRegex(s)
 { // ^ab[1-3]+?c(123|456|789)?d[2-5]{1,3}ef$ -> ^fe[2-5]{1,3}d(987|654|321)?c[1-3]+?ba$
+  try
+  {
+    new RegExp(s);
+  }
+  catch(e)
+  {
+    return "";
+  }
   var tokens=[];
   var i,m_idx;
   var end=false;
@@ -886,7 +896,6 @@ function reverseRegex(s)
       if (s[i+1]=="x")
       {
         tokens.push(s.substring(i,i+4));
-        console.log(s.substring(i,i+4));
         i+=3;
       }
       else
@@ -965,7 +974,13 @@ Queries matching this form will appear as
           props[0]+="$";
         if ((props[0]!="") && (props[0]!="*"))
           if (reverse)
-            out["$elemMatch"]["rlemma"]=reverseRegex(props[0]);
+          {
+            var s=reverseRegex(props[0]);
+            if (s!="")
+              out["$elemMatch"]["rlemma"]=s;
+            else
+              out["$elemMatch"]["lemma"]=props[0];
+          }
           else
             out["$elemMatch"]["lemma"]=props[0];
       }
@@ -1031,8 +1046,7 @@ function processForm(getStats)
         elems[i].value="0";
     }
   console.log(JSON.stringify(query));
-  jdata=callURL("history.py",JSON.stringify(query));
-  query={};
+  jdata=callURL("history",JSON.stringify(query));
   console.log(jdata);
   number=JSON.parse(jdata)["number"];
   query={"dataset":{}};
@@ -1058,14 +1072,14 @@ function processForm(getStats)
     options+=1;
     query["dataset"][""]={};
   }*/
-  for (i=2; i<12; i++)
+  for (i=glob_colls+1; i<glob_colls+11; i++)
   {
     var elem=document.getElementById("dataset"+i);
     if ((elem) && (elem.checked))
       query["dataset"][elem.value]={};
   }
   var str;
-  //str1=parseInt(document.getElementById("minyear").value,10);
+  //var str1=parseInt(document.getElementById("minyear").value,10);
   //var str2=parseInt(document.getElementById("maxyear").value,10);
   var str1=document.getElementById("minyear").options[document.getElementById("minyear").selectedIndex].value;
   var str2=document.getElementById("maxyear").options[document.getElementById("maxyear").selectedIndex].value;
@@ -1136,7 +1150,7 @@ function processForm(getStats)
   {
 //Get the indexes of all quotation marks
     for (i=0; i<str.length; i++)
-      if (str[i] === "\"")
+      if (str[i]==="\"")
         tmp.push(i);
     var subqueries=[];
 //Capture and parse every word between quote pairs
@@ -1188,7 +1202,7 @@ function processForm(getStats)
     document.getElementById("pagenum").innerHTML=langs_misc[settings["lang"]]["misc.8"];
   if (getStats)
     query["stats"]=true;
-  jdata=callURL("main.py",JSON.stringify(query));
+  jdata=callURL("main",JSON.stringify(query));
   if (jdata=="error")
   {
     if ("textContent" in document.body)
@@ -1233,7 +1247,6 @@ function processForm(getStats)
   document.getElementById("savecoll").disabled=(max<=0);
   datasets=results["datasets"];
   results=results["data"];
-  renderCheckboxes=true;
   page=1;
   batch=1;
   clean(0,results.length-1);
@@ -1273,7 +1286,7 @@ function requestContext(btn,param)
   else
     offset=parseInt(cell.getAttribute("roffset"),10)+1;
   var query={"extend":true,"_id":cell.getAttribute("link"),"type":dtype,"offset":offset};
-  var answer=JSON.parse(callURL("main.py",JSON.stringify(query)));
+  var answer=JSON.parse(callURL("main",JSON.stringify(query)));
   if (answer["text"])
   {
     var row=cell.parentElement;
@@ -1299,7 +1312,7 @@ function tableCreate(colnames,headernames,tblname,data,target)
   var thead=document.createElement("thead");
   var tbdy=document.createElement('tbody');
   var i,j;
-  var cl=colnames.length, dl=data.length;
+  var cl=colnames.length,dl=data.length;
   if (tblname!="")
   {
     var caption=document.createElement("caption");
@@ -1390,11 +1403,11 @@ function csv_dialog()
     el.removeChild(el.firstChild);
   for (i=0; i<fields.length; i++)
   {
-    var checkbox=document.createElement('input');
+    var checkbox=document.createElement("input");
     checkbox.type="checkbox";
     checkbox.id="check_"+fields[i][0];
     checkbox.checked=fields[i][1];
-    var label=document.createElement('label');
+    var label=document.createElement("label");
     label.htmlFor=checkbox.id;
     label.appendChild(document.createTextNode(fields[i][0]));
     el.appendChild(checkbox);
@@ -1542,7 +1555,7 @@ function exprt(what,how)
          }
       }
     }
-    var blob=new Blob(["\ufeff"+temp],{type: "application/octet-stream"});
+    var blob=new Blob(["\ufeff"+temp],{type:"application/octet-stream"});
     var d=new Date();
     var time=d.getFullYear()+("0"+(d.getMonth()+1)).slice(-2)+("0"+d.getDate()).slice(-2);
     time+="_"+("0"+d.getHours()).slice(-2)+("0"+d.getMinutes()).slice(-2)+("0"+d.getSeconds()).slice(-2);
@@ -1562,13 +1575,12 @@ function exprt(what,how)
 
 function save_results()
 {
-  save_hist=true;
-  var dump=callURL("colls.py",JSON.stringify({"save":true,"radius":parseInt(document.getElementById("radius").value,10)}));
-  console.log(dump);
+  var dump=callURL("colls",JSON.stringify({"save":true,"radius":parseInt(document.getElementById("radius").value,10)}));
   var name=JSON.parse(dump)["name"];
   if (name!="")
   {
     settings["colls"].push(JSON.parse(dump)["name"]);
+    save_hist=true;
     setColls(JSON.parse(dump)["name"],"add");
     glob_colls++;
   }
@@ -1658,6 +1670,7 @@ function save_results()
   <option value="2019">2019</option>
   <option value="2020">2020</option>
   <option value="2021">2021</option>
+  <option value="2022">2022</option>
 </select>
 <!--<input type="number" min="1985" max="2017" step="1" id="minyear"/>-->
 <!--<input type="date" min="1988-01-01" max="2017-12-31" value="1988-01-01" id="minyear">-->
@@ -1706,6 +1719,7 @@ function save_results()
   <option value="2019">2019</option>
   <option value="2020">2020</option>
   <option value="2021">2021</option>
+  <option value="2022">2022</option>
 </select>
 <br>
 <label for="party">Puolue</label>

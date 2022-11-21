@@ -106,52 +106,52 @@ function draw()
 
 function exprt2()
 {
-    var r=parent.results;
-    var temp="";
-    var colnames=["lemma","count","empty","year","count"];
-    var i,j;
-    temp="";
-    for (j=0; j<colnames.length; j++)
-    {
-      temp+=colnames[j];
-      if (j<colnames.length-1)
-        temp+=",";
-    }
-    temp+="\n";
-	i=0;
-	var y=[];
-	for (k in r["stats"]["years"])
-      y.push({"Vuosi":k,"Määrä":r["stats"]["years"][k]});
-    for (l=0; l<r["stats"]["lemmas"].length; l++)
-    {
-	  //temp+=l+","+r["stats"]["lemmas"][l]+",";
-      temp+=r["stats"]["lemmas"][l]["Lemma"]+","+r["stats"]["lemmas"][l]["Määrä"]+",";
-	  temp+=",";
-	  if (i<y.length)
-	    temp+=y[i]["Vuosi"]+","+y[i]["Määrä"];
-	  else
-	    temp+=",";
-      i++;
-      temp+="\n";
-    }
-    var blob=new Blob(["\ufeff"+temp],{type: "application/octet-stream"});
-    var d=new Date();
-    var time=d.getFullYear()+("0"+(d.getMonth()+1)).slice(-2)+("0"+d.getDate()).slice(-2);
-    time+="_"+("0"+d.getHours()).slice(-2)+("0"+d.getMinutes()).slice(-2)+("0"+d.getSeconds()).slice(-2);
-    if (window.navigator && window.navigator.msSaveOrOpenBlob)
-      window.navigator.msSaveOrOpenBlob(blob,"statistics_"+time+".csv");
+  var r=parent.results;
+  var temp="";
+  var colnames=["lemma","count","empty","year","count"];
+  var i,j;
+  temp="";
+  for (j=0; j<colnames.length; j++)
+  {
+    temp+=colnames[j];
+    if (j<colnames.length-1)
+      temp+=",";
+  }
+  temp+="\n";
+  i=0;
+  var y=[];
+  for (k in r["stats"]["years"])
+    y.push({"Vuosi":k,"Määrä":r["stats"]["years"][k]});
+  for (l=0; l<r["stats"]["lemmas"].length; l++)
+  {
+    //temp+=l+","+r["stats"]["lemmas"][l]+",";
+    temp+=r["stats"]["lemmas"][l]["Lemma"]+","+r["stats"]["lemmas"][l]["Määrä"]+",";
+    temp+=",";
+    if (i<y.length)
+      temp+=y[i]["Vuosi"]+","+y[i]["Määrä"];
     else
-    {
-      var link=document.createElement("a");
-      document.body.appendChild(link);
-      link.download="statistics_"+time+".csv";
-      link.href=window.URL.createObjectURL(blob);
-      link.click();
-      document.body.removeChild(link);
-      delete link;
-    }
+      temp+=",";
+    i++;
+    temp+="\n";
+  }
+  var blob=new Blob(["\ufeff"+temp],{type: "application/octet-stream"});
+  var d=new Date();
+  var time=d.getFullYear()+("0"+(d.getMonth()+1)).slice(-2)+("0"+d.getDate()).slice(-2);
+  time+="_"+("0"+d.getHours()).slice(-2)+("0"+d.getMinutes()).slice(-2)+("0"+d.getSeconds()).slice(-2);
+  if (window.navigator && window.navigator.msSaveOrOpenBlob)
+    window.navigator.msSaveOrOpenBlob(blob,"statistics_"+time+".csv");
+  else
+  {
+    var link=document.createElement("a");
+    document.body.appendChild(link);
+    link.download="statistics_"+time+".csv";
+    link.href=window.URL.createObjectURL(blob);
+    link.click();
+    document.body.removeChild(link);
+    delete link;
+  }
 }
- 
+
 </script>
 <body onclick="self.close();">
 <div id="left">

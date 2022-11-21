@@ -1,14 +1,15 @@
-#See http://modpython.org/live/mod_python-3.3.1/doc-html/pyapi-mprequest.html
 import re
-import json
+from json import dumps, loads
 import codecs
-import datetime
+from datetime import datetime
 from threading import Thread
-from bson.json_util import dumps
+from bson.json_util import dumps as bson_dumps
 from timeit import default_timer
 from time import sleep
-from constants import ptk_newf
+from urllib import unquote
 import pymongo
+
+from constants import ptk_newf
 
 # The search engine that passes the user's query to the DB
 # and returns sentences matching it.
@@ -67,7 +68,6 @@ def statistics(coll,log):
         break
     if len(pair)==1:
       pair.append("[ei sanaa]")
-      #pair=["[no word]",pair[0]]
     if len(pair)==0:
       pair=["[ei sanaa]","[ei sanaa]"]
     pairs.append(pair)
@@ -180,17 +180,16 @@ class newThread(Thread):
     file.write(str(cnt))
     file.close()
 
-def index(req,reqs):
+def application(environ, start_response):
   global patterns
   global all_lemmas
   all_lemmas=1
   patterns=[]
-  ob=json.loads(reqs)
   hasc=pymongo.has_c()
-  req.get_basic_auth_pw()
-  req.headers_out["Pragma"]="no-cache"
-  req.headers_out["Cache-Control"]="no-cache"
-  name=req.user
+  name=environ["REMOTE_USER"]
+  response_headers=[('Pragma','no-cache'),('Cache-Control','no-cache'),('Content-type','application/json')]
+  s=unquote(environ["QUERY_STRING"])
+  ob=loads(s[5:])
   out=codecs.open("./log.txt","a",encoding="utf-8")
   logger(out,ob)
   true_count=0
@@ -210,7 +209,10 @@ def index(req,reqs):
       if count<ob["batch"] and not found:
         cache.close()
         sleep(3)
-        return json.dumps({"count":-1},separators=(',',':'))
+        s=dumps({"count":-1},separators=(',',':'))
+        response_headers.append(('Content-Length',str(len(s))))
+        start_response("200 OK", response_headers)
+        return [s]
       parts=line.replace("\n","").split("|")
       i=1
       sum=0
@@ -238,13 +240,18 @@ def index(req,reqs):
   return_stats=False
   if "extend" in ob:
     trans={"minute":db.ptk}
+    doc=None
     if ob["type"] not in trans:
-      return dumps({"text":""})
-    doc=trans[ob["type"]].find_one({"_id":int(ob["_id"])+int(ob["offset"])})
-    if doc:
-      return dumps({"text":doc["text"]})
+      s=dumps({"text":""})
     else:
-      return dumps({"text":""})
+      doc=trans[ob["type"]].find_one({"_id":int(ob["_id"])+int(ob["offset"])})
+    if doc:
+      s=dumps({"text":doc["text"]})
+    else:
+      s=dumps({"text":""})
+    response_headers.append(('Content-Length',str(len(s))))
+    start_response("200 OK", response_headers)
+    return [s]
   if "radius" in ob:
     radius=ob["radius"]
     del ob["radius"]
@@ -255,9 +262,9 @@ def index(req,reqs):
   process(ob,out)
   if "metadata.date" in ob:
     if "$lte" in ob["metadata.date"]:
-      ob["metadata.date"]["$lte"]=datetime.datetime.strptime(ob["metadata.date"]["$lte"],"%Y-%m-%dT%H:%M:%S.%fZ")
+      ob["metadata.date"]["$lte"]=datetime.strptime(ob["metadata.date"]["$lte"],"%Y-%m-%dT%H:%M:%S.%fZ")
     if "$gte" in ob["metadata.date"]:
-      ob["metadata.date"]["$gte"]=datetime.datetime.strptime(ob["metadata.date"]["$gte"],"%Y-%m-%dT%H:%M:%S.%fZ")
+      ob["metadata.date"]["$gte"]=datetime.strptime(ob["metadata.date"]["$gte"],"%Y-%m-%dT%H:%M:%S.%fZ")
   caching=False
   cursors=[]
   query={}
@@ -279,7 +286,10 @@ def index(req,reqs):
         del partial["metadata.date"]
       cursors.append({"collection":db[elem],"cursor":None,"name":elem,"min_result":-1,"max_result":0,"active":True,"query":partial})
   if return_stats:
-    return json.dumps(statistics(cursors[0],out))
+    s=dumps(statistics(cursors[0],out))
+    response_headers.append(('Content-Length',str(len(s))))
+    start_response("200 OK", response_headers)
+    return [s]
   if quick:
     tempcount=0
     for coll in cursors:
@@ -331,7 +341,10 @@ def index(req,reqs):
           break
       file.write("\n")
     else:
-      return json.dumps({"count":0,"data":[],"times":[]},separators=(',',':'))
+      s=dumps({"count":0,"data":[],"times":[]},separators=(',',':'))
+      response_headers.append(('Content-Length',str(len(s))))
+      start_response("200 OK", response_headers)
+      return [s]
     if count>0 and count<MAX_RESULTS:
       true_count=count
       file.write(str(count))
@@ -551,10 +564,11 @@ def index(req,reqs):
   if caching and true_count==-MAX_RESULTS:
     thread=newThread(cursors,name)
     thread.start()
-  req.headers_out["Content-Type"]="application/json"
-  #final=csv(final)
   times.append(default_timer())
-  #result=dumps(final)
   times.append(default_timer())
   times={"started":times[0],"begincaching":times[1],"done_caching":times[2],"finished":times[3],"json_dumps":times[4],"diffs":[times[1]-times[0],times[2]-times[1],times[3]-times[2],times[4]-times[3]]}
-  return dumps({"count":int(true_count),"data":final,"datasets":dsets,"time":times},separators=(',', ':'))
+  results={"count":int(true_count),"data":final,"datasets":dsets,"time":times}
+  s=bson_dumps(results,separators=(',', ':'))
+  response_headers.append(('Content-Length',str(len(s))))
+  start_response("200 OK", response_headers)
+  return [s]
